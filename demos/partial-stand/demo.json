@@ -1,0 +1,14 @@
+{
+  "title": "Partial stand mesh",
+  "description": "This is a demo which uses a 3D scan simulation of the stand instead of the whole mesh. The simulation was generated with the 'mesh corrupt' function of the MeshMoose CLI",
+  "prompt": "Here's a partial 3D scan and some photos of a stand for the Lidl/Ernesto beverage dispenser glass. The stand has 5 parts: four legs and a top ring holding the glass. The top ring has a shallow recess to allow for the tap of the beverage dispenser. The separation between the legs and the top piece allows for printing without any support. Wood dowels (25mmx5mm) and plastic glue is used to hold everything together, so each leg has a hole for the dowel and the top ring has four holes to receive the dowels and align the legs. The mesh has parts missing, a few holes, and some other issues. Try recreating the original mesh.",
+  "mode": "thoughtful",
+  "photos": [
+    "img_4782.jpg",
+    "img_4783.jpg",
+    "img_4784.jpg"
+  ],
+  "meshes": [
+    "stand_partial.stl"
+  ]
+}

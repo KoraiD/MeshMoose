@@ -1,0 +1,8 @@
+Here's a stand for the Lidl/Ernesto beverage dispenser glass.
+The stand has 5 parts: four legs and a top ring holding the glass. The top ring has a shallow recess to allow for the tap of the beverage dispenser.
+
+The separation between the legs and the top piece allows for printing without any support.
+
+Wood dowels (25mmx5mm) and plastic glue is used to hold everything together, so each leg has a hole for the dowel and the top ring has four holes to receive the dowels and align the legs.
+
+Original design: https://makerworld.com/hu/models/111242-lidl-beverage-dispenser-stand-17-5-cm-bottom-diame

@@ -1,0 +1,32 @@
+{
+  "name": "meshmoose",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "MeshMoose.ai — multimodal reconstruction with Zoo APIs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KoraiD/MeshMoose.git"
+  },
+  "homepage": "https://github.com/KoraiD/MeshMoose",
+  "bugs": {
+    "url": "https://github.com/KoraiD/MeshMoose/issues"
+  },
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "dev:api": "cd apps/api && sh -c 'if [ -x ../../.venv/bin/uvicorn ]; then exec ../../.venv/bin/uvicorn meshmoose_api.main:app --reload --host 127.0.0.1 --port 8787; else exec uvicorn meshmoose_api.main:app --reload --host 127.0.0.1 --port 8787; fi'",
+    "build": "npm run build --workspace=apps/web",
+    "test": "npm run test --workspace=apps/web && npm run test:api",
+    "test:api": "cd apps/api && sh -c 'if [ -x ../../.venv/bin/pytest ]; then exec ../../.venv/bin/pytest -q; else exec pytest -q; fi'",
+    "test:web": "npm run test --workspace=apps/web",
+    "smoke": ".venv/bin/python scripts/smoke_demo.py",
+    "postinstall": "node scripts/copy-wasm.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

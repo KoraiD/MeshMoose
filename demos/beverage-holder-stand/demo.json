@@ -1,0 +1,10 @@
+{
+  "title": "Beverage holder stand",
+  "description": "Lidl/Ernesto beverage dispenser stand — five printable parts (four legs + top ring) joined with wood dowels.",
+  "source_url": "https://makerworld.com/hu/models/111242-lidl-beverage-dispenser-stand-17-5-cm-bottom-diame",
+  "source_label": "My original design - check it on MakerWorld",
+  "prompt": "This is a stand for a Lidl/Ernesto beverage dispenser glass. It has five parts: four legs and a top ring that holds the glass. The top ring has a shallow recess for the dispenser's tap. Legs and top are separate so the model prints without supports. Each leg has a hole for a 25 mm × 5 mm wood dowel; the top ring has four matching holes to receive the dowels and align the legs (parts are glued after assembly). Recreate it as clean, editable parametric KCL suitable for PLA 3D printing — prefer sketch + extrude with clear dimensions for the ring, recess, legs, and dowel holes.",
+  "mode": "thoughtful",
+  "photos": ["img_4782.jpg", "img_4783.jpg", "img_4784.jpg"],
+  "meshes": ["lidl-jar-stand.stl"]
+}

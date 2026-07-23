@@ -1,0 +1,49 @@
+# Private Cursor / agent notes
+.cursor/
+
+# Local notes
+local/
+_private/
+*.local.md
+
+# Secrets
+.env
+.env.*
+.env.local
+!.env.example
+*.pem
+*.key
+
+# Runtime data (jobs)
+data/
+
+# Demo validation run artifacts
+demos/**/results/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Dependencies / build
+node_modules/
+dist/
+build/
+.turbo/
+coverage/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# Media drafts / recordings
+*.mov
+*.mp4
+
+# Large Zoo KCL wasm (copied by npm postinstall / scripts/copy-wasm.mjs)
+apps/web/public/kcl_wasm_lib_bg.wasm
