@@ -62,26 +62,33 @@ def align_meshes(
     aligned = trimesh.Trimesh(vertices=gen.vertices.copy(), faces=gen.faces, process=False)
     aligned.apply_transform(matrix)
 
-    # Per-vertex distance from aligned generated → reference surface.
-    query_idx = _subsample_idx(len(aligned.vertices), MAX_SAMPLES)
-    query_pts = aligned.vertices[query_idx]
+    # Per-vertex distance for every generated vertex → reference surface.
+    # Registration (above) subsamples for speed, but the deviation heatmap needs
+    # a value per vertex so unsampled vertices don't render as black.
+    query_pts = aligned.vertices
     _closest, distances, _tid = trimesh.proximity.closest_point(ref, query_pts)
 
     dist = np.asarray(distances, dtype=np.float64)
-    finite = dist[np.isfinite(dist)]
+    # Non-finite values (NaN/Inf) break JSON serialization and mean "no valid
+    # closest point"; replace with 0 and track them separately.
+    non_finite = ~np.isfinite(dist)
+    finite = dist[~non_finite]
+    safe = np.where(non_finite, 0.0, dist)
+
     stats: dict[str, Any] = {
         "samples": int(len(query_pts)),
         "mean": float(finite.mean()) if finite.size else None,
         "max": float(finite.max()) if finite.size else None,
         "p95": float(np.percentile(finite, 95)) if finite.size else None,
         "rms": float(np.sqrt((finite**2).mean())) if finite.size else None,
+        "non_finite": int(non_finite.sum()),
         "icp_cost": float(cost),
     }
 
     return {
         "transform": np.asarray(matrix, dtype=float).tolist(),
-        "vertex_indices": query_idx.tolist(),
-        "distances": dist.tolist(),
+        "vertex_indices": list(range(len(query_pts))),
+        "distances": safe.tolist(),
         "stats": stats,
         "units": "mm",
     }

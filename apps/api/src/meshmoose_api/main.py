@@ -35,6 +35,10 @@ class JobPatch(BaseModel):
     tags: list[str] | None = None
 
 
+class ReferencePatch(BaseModel):
+    source: str
+
+
 configure_logging()
 app = FastAPI(
     title="MeshMoose.ai API",
@@ -75,16 +79,23 @@ REFINE_MAX_CHARS = 2000
 MAX_UPLOAD_BYTES = 32 * 1024 * 1024
 
 
-def _check_upload_size(data: bytes, filename: str) -> None:
+async def _read_capped(upload: UploadFile, filename: str) -> bytes:
+    """Read an upload, rejecting as soon as it exceeds the per-file limit.
+
+    Reads at most MAX_UPLOAD_BYTES + 1 so oversized payloads are rejected
+    without buffering the whole body in memory.
+    """
+    data = await upload.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,
             detail=(
-                f"'{filename}' is {len(data)} bytes — over the "
+                f"'{filename}' exceeds the "
                 f"{MAX_UPLOAD_BYTES // (1024 * 1024)}MB per-file limit. "
                 "Resize photos or simplify meshes before uploading."
             ),
         )
+    return data
 
 
 def require_token(
@@ -234,6 +245,33 @@ async def job_events(job_id: str, _: str = Depends(require_token)) -> StreamingR
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+@app.get("/jobs/{job_id}/reference", tags=["jobs"])
+def get_reference(job_id: str, _: str = Depends(require_token)) -> dict:
+    """Active Compare reference mesh + the list of selectable input meshes."""
+    try:
+        store.get(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+    return {
+        "active": store.reference_source(job_id),
+        "available": [f"inputs/{n}" for n in store.list_input_meshes(job_id)]
+        + ["outputs/reference.stl"],
+    }
+
+
+@app.put("/jobs/{job_id}/reference", tags=["jobs"])
+def put_reference(job_id: str, body: ReferencePatch, _: str = Depends(require_token)) -> dict:
+    try:
+        store.get(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+    try:
+        store.set_reference_source(job_id, body.source)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"active": store.reference_source(job_id)}
+
+
 @app.post("/jobs/{job_id}/align", tags=["jobs"])
 def align_job(job_id: str, _: str = Depends(require_token)) -> dict:
     """ICP-align generated mesh onto reference and compute per-vertex deviation."""
@@ -242,12 +280,12 @@ def align_job(job_id: str, _: str = Depends(require_token)) -> dict:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Job not found") from exc
     paths = store.paths(job_id)
-    ref = paths.outputs / "reference.stl"
+    ref = store.reference_path(job_id)
     gen = paths.outputs / "generated.stl"
     if not ref.is_file() or not gen.is_file():
         raise HTTPException(
             status_code=400,
-            detail="Both reference.stl and generated.stl are required — run a successful job first",
+            detail="Both a reference mesh and generated.stl are required — run a successful job first",
         )
     try:
         return align_meshes(reference_stl=ref, generated_stl=gen)
@@ -317,12 +355,10 @@ async def create_job(
     job_id = meta["id"]
     try:
         for photo in photos:
-            data = await photo.read()
-            _check_upload_size(data, photo.filename or "photo.jpg")
+            data = await _read_capped(photo, photo.filename or "photo.jpg")
             store.save_upload(job_id, photo.filename or "photo.jpg", data, "photo")
         for mesh in meshes:
-            data = await mesh.read()
-            _check_upload_size(data, mesh.filename or "mesh.stl")
+            data = await _read_capped(mesh, mesh.filename or "mesh.stl")
             store.save_upload(job_id, mesh.filename or "mesh.stl", data, "mesh")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -407,19 +443,17 @@ async def refine(
     mesh_names: list[str] = []
     try:
         for photo in photos or []:
-            data = await photo.read()
+            data = await _read_capped(photo, photo.filename or "refine_photo.jpg")
             if not data:
                 continue
-            _check_upload_size(data, photo.filename or "refine_photo.jpg")
             name = store.save_upload(
                 job_id, photo.filename or "refine_photo.jpg", data, "photo"
             )
             photo_names.append(name)
         for mesh in meshes or []:
-            data = await mesh.read()
+            data = await _read_capped(mesh, mesh.filename or "refine_mesh.stl")
             if not data:
                 continue
-            _check_upload_size(data, mesh.filename or "refine_mesh.stl")
             name = store.save_upload(
                 job_id, mesh.filename or "refine_mesh.stl", data, "mesh"
             )

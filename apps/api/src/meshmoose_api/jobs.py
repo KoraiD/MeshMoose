@@ -398,11 +398,51 @@ class JobStore:
         rel = Path(relative)
         if rel.is_absolute() or ".." in rel.parts:
             raise ValueError("invalid path")
+        # The active Compare reference resolves through meta, not a fixed file.
+        if rel.as_posix() == "outputs/reference.stl":
+            return self.reference_path(job_id)
         path = (self.paths(job_id).root / rel).resolve()
         root = self.paths(job_id).root.resolve()
         if not str(path).startswith(str(root)):
             raise ValueError("invalid path")
         return path
+
+    def list_input_meshes(self, job_id: str) -> list[str]:
+        """Mesh files in inputs/ the user can pick as the Compare reference."""
+        meta = self.get(job_id)
+        out: list[str] = []
+        for name in meta.get("input_meshes") or []:
+            if (self.paths(job_id).inputs / name).is_file():
+                out.append(name)
+        # The normalized agent mesh is always a candidate if present.
+        agent = self.paths(job_id).inputs / "mesh_for_agent.stl"
+        if agent.is_file() and "mesh_for_agent.stl" not in out:
+            out.append("mesh_for_agent.stl")
+        return out
+
+    def reference_source(self, job_id: str) -> str:
+        """Relative path (from job root) of the active reference mesh."""
+        meta = self.get(job_id)
+        src = meta.get("reference_source")
+        if src and (self.paths(job_id).root / src).is_file():
+            return src
+        # Default: the normalized agent mesh, else the generated reference output.
+        if (self.paths(job_id).inputs / "mesh_for_agent.stl").is_file():
+            return "inputs/mesh_for_agent.stl"
+        return "outputs/reference.stl"
+
+    def reference_path(self, job_id: str) -> Path:
+        return (self.paths(job_id).root / self.reference_source(job_id)).resolve()
+
+    def set_reference_source(self, job_id: str, source: str) -> dict[str, Any]:
+        """Set the active Compare reference to an input mesh or the default output."""
+        allowed = {f"inputs/{n}" for n in self.list_input_meshes(job_id)}
+        allowed.add("outputs/reference.stl")
+        if source not in allowed:
+            raise ValueError(
+                f"Invalid reference '{source}'. Choose one of: {', '.join(sorted(allowed))}"
+            )
+        return self.update_meta(job_id, reference_source=source)
 
     def delete(self, job_id: str) -> None:
         shutil.rmtree(self.paths(job_id).root, ignore_errors=True)
