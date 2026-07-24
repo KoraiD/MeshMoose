@@ -69,6 +69,21 @@ store = JobStore()
 DEMOS_DIR = ROOT / "demos"
 PROMPT_MAX_CHARS = 8000
 REFINE_MAX_CHARS = 2000
+# Per-file upload cap. Zookeeper payloads are ~64MB after JSON uint8 expansion;
+# 32MB per raw file leaves headroom for multi-file jobs (see docs/api-notes.md).
+MAX_UPLOAD_BYTES = 32 * 1024 * 1024
+
+
+def _check_upload_size(data: bytes, filename: str) -> None:
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"'{filename}' is {len(data)} bytes — over the "
+                f"{MAX_UPLOAD_BYTES // (1024 * 1024)}MB per-file limit. "
+                "Resize photos or simplify meshes before uploading."
+            ),
+        )
 
 
 def require_token(
@@ -279,9 +294,11 @@ async def create_job(
     try:
         for photo in photos:
             data = await photo.read()
+            _check_upload_size(data, photo.filename or "photo.jpg")
             store.save_upload(job_id, photo.filename or "photo.jpg", data, "photo")
         for mesh in meshes:
             data = await mesh.read()
+            _check_upload_size(data, mesh.filename or "mesh.stl")
             store.save_upload(job_id, mesh.filename or "mesh.stl", data, "mesh")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -369,6 +386,7 @@ async def refine(
             data = await photo.read()
             if not data:
                 continue
+            _check_upload_size(data, photo.filename or "refine_photo.jpg")
             name = store.save_upload(
                 job_id, photo.filename or "refine_photo.jpg", data, "photo"
             )
@@ -377,6 +395,7 @@ async def refine(
             data = await mesh.read()
             if not data:
                 continue
+            _check_upload_size(data, mesh.filename or "refine_mesh.stl")
             name = store.save_upload(
                 job_id, mesh.filename or "refine_mesh.stl", data, "mesh"
             )

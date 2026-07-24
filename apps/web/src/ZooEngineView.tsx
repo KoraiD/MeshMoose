@@ -788,22 +788,28 @@ export function ZooEngineView({
 
     const onContextMenu = (e: Event) => e.preventDefault()
 
-    surface.addEventListener('touchstart', onStart, { passive: false })
-    surface.addEventListener('touchmove', onMove, { passive: false })
-    surface.addEventListener('touchend', onEnd, { passive: false })
-    surface.addEventListener('touchcancel', onEnd, { passive: false })
-    surface.addEventListener('wheel', onWheel, { passive: false })
-    surface.addEventListener('mousedown', onMouseDown)
+    const onStartL = onStart as EventListener
+    const onMoveL = onMove as EventListener
+    const onEndL = onEnd as EventListener
+    const onWheelL = onWheel as EventListener
+    const onMouseDownL = onMouseDown as EventListener
+
+    surface.addEventListener('touchstart', onStartL, { passive: false })
+    surface.addEventListener('touchmove', onMoveL, { passive: false })
+    surface.addEventListener('touchend', onEndL, { passive: false })
+    surface.addEventListener('touchcancel', onEndL, { passive: false })
+    surface.addEventListener('wheel', onWheelL, { passive: false })
+    surface.addEventListener('mousedown', onMouseDownL)
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
     surface.addEventListener('contextmenu', onContextMenu)
     return () => {
-      surface.removeEventListener('touchstart', onStart)
-      surface.removeEventListener('touchmove', onMove)
-      surface.removeEventListener('touchend', onEnd)
-      surface.removeEventListener('touchcancel', onEnd)
-      surface.removeEventListener('wheel', onWheel)
-      surface.removeEventListener('mousedown', onMouseDown)
+      surface.removeEventListener('touchstart', onStartL)
+      surface.removeEventListener('touchmove', onMoveL)
+      surface.removeEventListener('touchend', onEndL)
+      surface.removeEventListener('touchcancel', onEndL)
+      surface.removeEventListener('wheel', onWheelL)
+      surface.removeEventListener('mousedown', onMouseDownL)
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
       surface.removeEventListener('contextmenu', onContextMenu)

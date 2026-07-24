@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 from pathlib import Path
 
 from meshmoose_api.logging_util import JobLogger
 from meshmoose_api.threemf import stl_to_3mf
+
+# zoo-kcl reads the token from process env, which is shared across job threads.
+# Serialize exports so one job's token can never leak into another job's call,
+# and restore the prior env afterwards so tokens never linger in the process.
+_EXPORT_LOCK = threading.Lock()
+_TOKEN_ENV_KEYS = ("ZOO_API_TOKEN", "KITTYCAD_API_TOKEN")
 
 
 def export_kcl(
@@ -19,9 +26,29 @@ def export_kcl(
 ) -> None:
     import kcl
 
-    os.environ["ZOO_API_TOKEN"] = token
-    os.environ["KITTYCAD_API_TOKEN"] = token
+    with _EXPORT_LOCK:
+        saved = {key: os.environ.get(key) for key in _TOKEN_ENV_KEYS}
+        os.environ["ZOO_API_TOKEN"] = token
+        os.environ["KITTYCAD_API_TOKEN"] = token
+        try:
+            _export_stl_step(kcl, main_kcl, out_stl, out_step, log)
+        finally:
+            for key, prior in saved.items():
+                if prior is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = prior
 
+    # Zoo has no native 3MF; derive from the STL for slicer / print workflows.
+    target_3mf = out_3mf if out_3mf is not None else out_stl.with_suffix(".3mf")
+    try:
+        log.emit("Converting STL → 3MF (trimesh; Zoo has no native 3MF)", kind="export")
+        stl_to_3mf(out_stl, target_3mf, log=log)
+    except Exception as exc:  # noqa: BLE001
+        log.emit(f"3MF export skipped: {exc}", level="warn", kind="export")
+
+
+def _export_stl_step(kcl, main_kcl: str, out_stl: Path, out_step: Path, log: JobLogger) -> None:
     async def _run() -> None:
         log.emit("Exporting KCL → STL via Engine", kind="export")
         stl_files = await kcl.execute_code_and_export(
@@ -48,11 +75,3 @@ def export_kcl(
         )
 
     asyncio.run(_run())
-
-    # Zoo has no native 3MF; derive from the STL for slicer / print workflows.
-    target_3mf = out_3mf if out_3mf is not None else out_stl.with_suffix(".3mf")
-    try:
-        log.emit("Converting STL → 3MF (trimesh; Zoo has no native 3MF)", kind="export")
-        stl_to_3mf(out_stl, target_3mf, log=log)
-    except Exception as exc:  # noqa: BLE001
-        log.emit(f"3MF export skipped: {exc}", level="warn", kind="export")
