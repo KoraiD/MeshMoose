@@ -519,6 +519,81 @@ def test_refine_rejects_oversized_upload(tmp_path: Path, monkeypatch: pytest.Mon
     assert res.status_code == 413
 
 
+def test_align_meshes_recovers_translation(tmp_path: Path):
+    import trimesh
+    from meshmoose_api.align import align_meshes
+
+    ref = trimesh.creation.box(extents=[10, 10, 10])
+    ref.export(tmp_path / "ref.stl")
+    gen = trimesh.creation.box(extents=[10, 10, 10])
+    gen.apply_translation([2.0, -1.0, 0.5])
+    gen.export(tmp_path / "gen.stl")
+
+    result = align_meshes(reference_stl=tmp_path / "ref.stl", generated_stl=tmp_path / "gen.stl")
+    assert len(result["transform"]) == 4
+    assert len(result["distances"]) == len(result["vertex_indices"])
+    assert result["stats"]["mean"] is not None
+    # A translated identical box should align to ~zero deviation.
+    assert result["stats"]["mean"] < 0.01
+    assert result["stats"]["max"] < 0.01
+
+
+def test_align_meshes_reports_deviation(tmp_path: Path):
+    import trimesh
+    from meshmoose_api.align import align_meshes
+
+    ref = trimesh.creation.box(extents=[10, 10, 10])
+    ref.export(tmp_path / "ref.stl")
+    gen = trimesh.creation.box(extents=[12, 10, 10])
+    gen.export(tmp_path / "gen.stl")
+
+    result = align_meshes(reference_stl=tmp_path / "ref.stl", generated_stl=tmp_path / "gen.stl")
+    assert result["stats"]["mean"] > 0.1
+    assert result["stats"]["max"] >= result["stats"]["mean"]
+
+
+def test_align_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
+    import trimesh
+    from fastapi.testclient import TestClient
+
+    import meshmoose_api.main as main_mod
+    from meshmoose_api.jobs import JobStore as LiveStore
+
+    main_mod.store = LiveStore(tmp_path / "jobs")
+    client = TestClient(main_mod.app)
+    headers = {"Authorization": "Bearer test-token"}
+
+    meta = main_mod.store.create(prompt="box", mode="fast")
+    job_id = meta["id"]
+    out = main_mod.store.paths(job_id).outputs
+    trimesh.creation.box().export(out / "reference.stl")
+    trimesh.creation.box().export(out / "generated.stl")
+    main_mod.store.update_meta(job_id, status="succeeded")
+
+    res = client.post(f"/jobs/{job_id}/align", headers=headers)
+    assert res.status_code == 200
+    body = res.json()
+    assert "transform" in body
+    assert body["stats"]["mean"] is not None
+
+
+def test_align_endpoint_requires_meshes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
+    from fastapi.testclient import TestClient
+
+    import meshmoose_api.main as main_mod
+    from meshmoose_api.jobs import JobStore as LiveStore
+
+    main_mod.store = LiveStore(tmp_path / "jobs")
+    client = TestClient(main_mod.app)
+    headers = {"Authorization": "Bearer test-token"}
+
+    meta = main_mod.store.create(prompt="box", mode="fast")
+    res = client.post(f"/jobs/{meta['id']}/align", headers=headers)
+    assert res.status_code == 400
+
+
 def test_zoo_usage_requires_auth(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
     from fastapi.testclient import TestClient

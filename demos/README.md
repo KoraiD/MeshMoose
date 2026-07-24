@@ -74,3 +74,4 @@ Delete (or rename) the `demos/<demo-id>/` subfolder. MeshMoose only lists direct
 |----|----------------|
 | `beverage-holder-stand` | Lidl/Ernesto beverage dispenser stand ([MakerWorld](https://makerworld.com/hu/models/111242-lidl-beverage-dispenser-stand-17-5-cm-bottom-diame)) — multi-part print with dowel holes |
 | `partial-stand` | Same stand with a corrupted scan mesh (generated via `meshmoose mesh corrupt`) plus the same photos — tests reconstruction from incomplete geometry |
+| `brick-wall` | Running-bond brick segment (mesh + photo) used by the **Brick wall texture** refine snippet — the Agent projects raised brick courses and recessed mortar joints onto a model as real geometry |

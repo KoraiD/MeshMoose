@@ -66,10 +66,75 @@ def cmd_health(args: argparse.Namespace) -> int:
     return 0
 
 
+_BASH_COMPLETION = r"""# meshmoose bash completion — source this file or `eval "$(meshmoose completion bash)"`
+_meshmoose() {
+    local cur prev cmds
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    cmds="health usage demos jobs mesh completion"
+    case "${COMP_WORDS[1]}" in
+        demos) COMPREPLY=( $(compgen -W "list run" -- "$cur") ) ;;
+        jobs)  COMPREPLY=( $(compgen -W "list get create wait cancel retry delete rename logs refine finish artifacts download" -- "$cur") ) ;;
+        mesh)  COMPREPLY=( $(compgen -W "corrupt" -- "$cur") ) ;;
+        completion) COMPREPLY=( $(compgen -W "bash zsh" -- "$cur") ) ;;
+        *)     COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
+    esac
+    return 0
+}
+complete -F _meshmoose meshmoose
+"""
+
+_ZSH_COMPLETION = r"""#compdef meshmoose
+# meshmoose zsh completion — place in fpath or `eval "$(meshmoose completion zsh)"`
+_meshmoose() {
+    local -a cmds
+    cmds=(health usage demos jobs mesh completion)
+    if (( CURRENT == 2 )); then
+        _describe 'command' cmds
+        return
+    fi
+    case "${words[2]}" in
+        demos) compadd list run ;;
+        jobs)  compadd list get create wait cancel retry delete rename logs refine finish artifacts download ;;
+        mesh)  compadd corrupt ;;
+        completion) compadd bash zsh ;;
+    esac
+}
+_meshmoose "$@"
+"""
+
+
+def cmd_completion(args: argparse.Namespace) -> int:
+    script = _ZSH_COMPLETION if args.shell == "zsh" else _BASH_COMPLETION
+    print(script)
+    return 0
+
+
 def cmd_usage(args: argparse.Namespace) -> int:
     with _client_from_args(args) as client:
-        _print(client.usage(), as_json=True)
-    return 0
+        if not args.watch:
+            _print(client.usage(), as_json=True)
+            return 0
+        import time
+
+        try:
+            while True:
+                payload = client.usage()
+                bal = payload.get("balance") or {}
+                totals = payload.get("recent_totals") or {}
+                remaining = bal.get("monthly_api_credits_remaining")
+                plan = bal.get("plan_name") or "?"
+                print(
+                    f"[{time.strftime('%H:%M:%S')}] plan={plan} "
+                    f"credits_remaining={remaining} "
+                    f"recent: {totals.get('count', 0)} calls / "
+                    f"{totals.get('seconds', 0)}s / ${totals.get('price', 0)}",
+                    flush=True,
+                )
+                time.sleep(float(args.interval))
+        except KeyboardInterrupt:
+            return 130
 
 
 def cmd_demos_list(args: argparse.Namespace) -> int:
@@ -115,7 +180,20 @@ def cmd_jobs_list(args: argparse.Namespace) -> int:
 
 def cmd_jobs_get(args: argparse.Namespace) -> int:
     with _client_from_args(args) as client:
-        _print(client.get_job(args.job_id), as_json=True)
+        job = client.get_job(args.job_id)
+        if args.json:
+            _print(job, as_json=True)
+        else:
+            tags = ",".join(job.get("tags") or [])
+            print(f"id:      {job.get('id')}")
+            print(f"title:   {job.get('title') or ''}")
+            print(f"status:  {job.get('status')}")
+            print(f"mode:    {job.get('mode')}")
+            print(f"tags:    {tags}")
+            print(f"created: {job.get('created_at')}")
+            if job.get("error"):
+                print(f"error:   {job.get('error')}")
+            print(f"prompt:  {job.get('prompt') or ''}")
     return 0
 
 
@@ -186,6 +264,38 @@ def cmd_jobs_retry(args: argparse.Namespace) -> int:
 def cmd_jobs_delete(args: argparse.Namespace) -> int:
     with _client_from_args(args) as client:
         _print(client.delete_job(args.job_id), as_json=True)
+    return 0
+
+
+def cmd_jobs_rename(args: argparse.Namespace) -> int:
+    if not args.title and args.tag is None:
+        print("Error: provide --title and/or --tag", file=sys.stderr)
+        return 2
+    tags = [t.strip() for t in (args.tag or []) if t and t.strip()] if args.tag is not None else None
+    with _client_from_args(args) as client:
+        job = client.patch_job(
+            args.job_id,
+            title=(args.title.strip() if args.title else None),
+            tags=tags,
+        )
+        if args.json:
+            _print(job, as_json=True)
+        else:
+            print(f"{job.get('id')}\t{job.get('title') or ''}\t{','.join(job.get('tags') or [])}")
+    return 0
+
+
+def cmd_jobs_logs(args: argparse.Namespace) -> int:
+    with _client_from_args(args) as client:
+        try:
+            data = client.download_file(args.job_id, "outputs/job.log")
+        except MeshMooseError:
+            print("Error: no job.log yet (job may not have started)", file=sys.stderr)
+            return 1
+    lines = data.decode("utf-8", errors="replace").splitlines()
+    tail = lines[-args.lines :] if args.lines > 0 else lines
+    for line in tail:
+        print(line)
     return 0
 
 
@@ -323,6 +433,9 @@ def build_parser() -> argparse.ArgumentParser:
             "  meshmoose jobs create --prompt \"Washer 20mm\" "
             "--photo a.jpg --mesh a.stl --wait\n"
             "  meshmoose demos run beverage-holder-stand --mode fast --wait\n"
+            "  meshmoose jobs rename JOB_ID --title \"Coin v2\" --tag coin\n"
+            "  meshmoose jobs logs JOB_ID --lines 50\n"
+            "  meshmoose usage --watch --interval 30\n"
             "  meshmoose jobs download JOB_ID --out ./out\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -339,11 +452,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     health.set_defaults(func=cmd_health)
 
+    completion = sub.add_parser(
+        "completion",
+        parents=[shared],
+        help="Print shell completion script (bash | zsh)",
+        epilog=(
+            "Examples:\n"
+            "  eval \"$(meshmoose completion bash)\"   # bash\n"
+            "  eval \"$(meshmoose completion zsh)\"    # zsh"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    completion.add_argument("shell", choices=("bash", "zsh"))
+    completion.set_defaults(func=cmd_completion)
+
     usage = sub.add_parser(
         "usage",
         parents=[shared],
         help="Show Zoo account usage (credits + recent calls)",
-        epilog="Example: meshmoose usage",
+        epilog="Example: meshmoose usage · meshmoose usage --watch --interval 30",
+    )
+    usage.add_argument(
+        "--watch",
+        action="store_true",
+        help="Poll usage repeatedly (Ctrl+C to stop)",
+    )
+    usage.add_argument(
+        "--interval",
+        type=float,
+        default=30.0,
+        help="Seconds between --watch polls (default 30)",
     )
     usage.set_defaults(func=cmd_usage)
 
@@ -456,6 +594,43 @@ def build_parser() -> argparse.ArgumentParser:
     )
     j_delete.add_argument("job_id")
     j_delete.set_defaults(func=cmd_jobs_delete)
+
+    j_rename = jobs_sub.add_parser(
+        "rename",
+        parents=[shared],
+        help="Rename a job and/or replace its tags",
+        epilog=(
+            "Example:\n"
+            "  meshmoose jobs rename JOB_ID --title \"Coin v2\"\n"
+            "  meshmoose jobs rename JOB_ID --tag coin --tag pla"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    j_rename.add_argument("job_id")
+    j_rename.add_argument("--title", default=None, help="New title (max 80 chars)")
+    j_rename.add_argument(
+        "--tag",
+        action="append",
+        default=None,
+        metavar="TAG",
+        help="Replace tags (repeatable, max 5; omit to keep existing)",
+    )
+    j_rename.set_defaults(func=cmd_jobs_rename)
+
+    j_logs = jobs_sub.add_parser(
+        "logs",
+        parents=[shared],
+        help="Print a job's log (tail)",
+        epilog="Example: meshmoose jobs logs JOB_ID --lines 50",
+    )
+    j_logs.add_argument("job_id")
+    j_logs.add_argument(
+        "--lines",
+        type=int,
+        default=80,
+        help="Number of trailing lines to print (0 = all, default 80)",
+    )
+    j_logs.set_defaults(func=cmd_jobs_logs)
 
     j_refine = jobs_sub.add_parser(
         "refine",

@@ -213,6 +213,30 @@ export async function retryJob(id: string): Promise<Job> {
   return res.json()
 }
 
+export type AlignResult = {
+  transform: number[]
+  vertex_indices: number[]
+  distances: number[]
+  stats: {
+    samples: number
+    mean: number | null
+    max: number | null
+    p95: number | null
+    rms: number | null
+    icp_cost: number
+  }
+  units: string
+}
+
+export async function alignJob(id: string): Promise<AlignResult> {
+  const res = await fetch(`${BASE}/jobs/${id}/align`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(await errDetail(res))
+  return res.json()
+}
+
 export async function patchJob(
   id: string,
   body: { title?: string; tags?: string[] },
@@ -267,6 +291,11 @@ export async function getZooUsage(): Promise<ZooUsage> {
 
 export function jobFileUrl(jobId: string, relative: string): string {
   return `${BASE}/jobs/${jobId}/files/${relative}`
+}
+
+/** Demo assets are served unauthenticated from the /demo-assets static mount. */
+export function demoAssetUrl(demoId: string, filename: string): string {
+  return `${BASE}/demo-assets/${encodeURIComponent(demoId)}/${encodeURIComponent(filename)}`
 }
 
 export async function listArtifacts(jobId: string): Promise<Artifact[]> {

@@ -369,6 +369,13 @@ select:focus-visible {
   border: 0;
 }
 
+.jobs-list-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .jobs ul {
   list-style: none;
   margin: 0;
@@ -378,7 +385,59 @@ select:focus-visible {
   flex-direction: column;
   gap: 0.4rem;
   max-height: 70vh;
-  overflow: auto;
+  overflow-y: auto;
+  /* Always reserve scrollbar gutter so the scroll affordance is visible. */
+  scrollbar-gutter: stable;
+}
+
+/* Visible scrollbar so it's clear the list scrolls. */
+.jobs ul::-webkit-scrollbar {
+  width: 8px;
+}
+
+.jobs ul::-webkit-scrollbar-track {
+  background: var(--panel-2);
+  border-radius: 4px;
+}
+
+.jobs ul::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 4px;
+}
+
+.jobs ul::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Fade at the bottom while there is more content below the fold. */
+.jobs-list-wrap.has-more::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 1.4rem;
+  height: 2.2rem;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--panel));
+}
+
+.jobs-end {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.4rem 0 0.15rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.jobs-end::before,
+.jobs-end::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
 }
 
 .job-row {
@@ -1986,6 +2045,95 @@ button.linkish:hover:not(:disabled) {
 
 .overlay-sliders input[type='range'] {
   width: 7rem;
+}
+
+.align-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.align-stats {
+  font-size: 0.74rem;
+}
+
+.align-error {
+  font-size: 0.74rem;
+  color: var(--bad, #dc2626);
+}
+
+.nudge-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 0.9rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.nudge-controls label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.nudge-controls input[type='range'] {
+  width: 5.5rem;
+}
+
+.nudge-val {
+  min-width: 2.4rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.kcl-diff {
+  font-size: 0.72rem;
+  line-height: 1.4;
+  overflow-x: auto;
+}
+
+.diff-line {
+  white-space: pre;
+  padding: 0 0.25rem;
+}
+
+.diff-sign {
+  display: inline-block;
+  width: 1em;
+  user-select: none;
+}
+
+.diff-add {
+  background: rgba(22, 163, 74, 0.14);
+  color: var(--ink);
+}
+
+.diff-add .diff-sign {
+  color: #16a34a;
+}
+
+.diff-del {
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--muted);
+}
+
+.diff-del .diff-sign {
+  color: #dc2626;
+}
+
+.diff-gap {
+  padding: 0.1rem 0.25rem;
+  color: var(--muted);
+  font-style: italic;
+  background: var(--panel-2);
 }
 
 .compare-overlay {
