@@ -181,6 +181,25 @@ def test_job_store_create_and_log(tmp_path: Path):
     assert (store.paths(meta["id"]).outputs / "job.log").is_file()
 
 
+def test_read_events_cursor_skips_prefix_without_replay(tmp_path: Path):
+    from meshmoose_api.logging_util import JobLogger
+
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    log = JobLogger(job_dir)
+    for msg in ("one", "two", "three"):
+        log.emit(msg, kind="status")
+
+    first, cursor = log.read_events_with_cursor(0)
+    assert [e["message"] for e in first] == ["one", "two", "three"]
+    assert cursor == 3
+
+    rest, cursor2 = log.read_events_with_cursor(2)
+    assert [e["message"] for e in rest] == ["three"]
+    assert cursor2 == 3
+    assert log.read_events_with_cursor(3) == ([], 3)
+
+
 def test_xyz_to_stl(tmp_path: Path):
     xyz = tmp_path / "cloud.xyz"
     pts = np.array(

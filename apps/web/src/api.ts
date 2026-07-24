@@ -341,7 +341,6 @@ export function subscribeJobEvents(
   onEvent: (ev: JobEvent) => void,
   onError?: (err: Error) => void,
 ): () => void {
-  const token = getApiToken()
   let stopped = false
   let after = 0
   let controller: AbortController | null = null
@@ -354,6 +353,14 @@ export function subscribeJobEvents(
   void (async () => {
     let failures = 0
     while (!stopped) {
+      // Read credentials per attempt so save/clear/rotate mid-session works.
+      const token = getApiToken()
+      if (!token) {
+        failures = 0
+        await sleep(1500)
+        continue
+      }
+
       controller = new AbortController()
       try {
         const url = `${BASE}/jobs/${jobId}/events?after=${after}`

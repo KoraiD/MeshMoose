@@ -230,9 +230,8 @@ async def job_events(
         log = store.logger(job_id)
         seen = start
         # Backlog from cursor (0 = full history; reconnects pass the last seen index).
-        events = log.read_events(seen)
+        events, seen = log.read_events_with_cursor(seen)
         for ev in events:
-            seen += 1
             yield f"data: {json.dumps(ev)}\n\n"
         # Keep streaming for the life of the connection so refine / finish after a
         # succeeded job still push status + artifacts to the open Workbench page.
@@ -243,9 +242,8 @@ async def job_events(
             except KeyError:
                 yield f"data: {json.dumps({'kind': 'stream_end', 'status': 'gone'})}\n\n"
                 break
-            new_events = log.read_events(seen)
+            new_events, seen = log.read_events_with_cursor(seen)
             for ev in new_events:
-                seen += 1
                 yield f"data: {json.dumps(ev)}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream")
