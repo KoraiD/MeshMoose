@@ -17,6 +17,9 @@ import {
   refineJob,
   retryJob,
   subscribeJobEvents,
+  alignJob,
+  demoAssetUrl,
+  type AlignResult,
   type Artifact,
   type Demo,
   type FinishPreset,
@@ -28,6 +31,7 @@ import { appLog } from './appLog'
 import { AuthImage } from './AuthImage'
 import { DocsPage } from './DocsPage'
 import { flattenMetrics, highlightJson, highlightKcl } from './highlight'
+import { collapseSame, diffLines } from './kclDiff'
 import { MarkdownView } from './MarkdownView'
 import {
   convertVolumeFromCm3,
@@ -38,6 +42,7 @@ import {
   type VolumeUnit,
 } from './metricUnits'
 import { listPromptTemplates, type PromptTemplate } from './promptTemplates'
+import { REFINE_SNIPPETS } from './refineSnippets'
 import { SettingsModal } from './SettingsModal'
 import { StlViewport } from './StlViewport'
 import { applyTheme, getThemePreference } from './theme'
@@ -240,10 +245,15 @@ export default function App() {
   const [refine, setRefine] = useState('')
   const [refinePhotos, setRefinePhotos] = useState<FileList | null>(null)
   const [refineMeshes, setRefineMeshes] = useState<FileList | null>(null)
+  const [refinePkgPhotos, setRefinePkgPhotos] = useState<File[]>([])
+  const [refinePkgMeshes, setRefinePkgMeshes] = useState<File[]>([])
+  const [refineSnippetId, setRefineSnippetId] = useState('')
   const [finishes, setFinishes] = useState<FinishPreset[]>([])
   const [finishId, setFinishId] = useState('brushed-aluminum')
   const [error, setError] = useState<string | null>(null)
   const [kcl, setKcl] = useState('')
+  const [initialKcl, setInitialKcl] = useState('')
+  const [kclView, setKclView] = useState<'current' | 'diff'>('current')
   const [metrics, setMetrics] = useState<string>('')
   const [artifacts, setArtifacts] = useState<Artifact[]>([])
   const [hasReference, setHasReference] = useState(false)
@@ -261,6 +271,15 @@ export default function App() {
   const [compareMode, setCompareMode] = useState<'side' | 'overlay'>('side')
   const [refOpacity, setRefOpacity] = useState(0.45)
   const [genOpacity, setGenOpacity] = useState(1)
+  const [alignResult, setAlignResult] = useState<AlignResult | null>(null)
+  const [alignBusy, setAlignBusy] = useState(false)
+  const [alignError, setAlignError] = useState<string | null>(null)
+  const [heatmapOn, setHeatmapOn] = useState(false)
+  const [nudge, setNudge] = useState<{
+    translate: [number, number, number]
+    rotateDeg: [number, number, number]
+    scale: number
+  }>({ translate: [0, 0, 0], rotateDeg: [0, 0, 0], scale: 1 })
   const [volumeUnit, setVolumeUnitState] = useState<VolumeUnit>(() => getVolumeUnit())
   const [jobTitleDraft, setJobTitleDraft] = useState('')
   const [createTitle, setCreateTitle] = useState('')
@@ -273,6 +292,8 @@ export default function App() {
   )
   const logPanelRef = useRef<HTMLDivElement>(null)
   const stickLogToBottom = useRef(true)
+  const jobsListRef = useRef<HTMLUListElement>(null)
+  const [jobsHasMore, setJobsHasMore] = useState(false)
 
   useEffect(() => {
     applyTheme(getThemePreference())
@@ -451,12 +472,20 @@ export default function App() {
     void fetch(`${jobFileUrl(job.id, 'outputs/metrics.json')}?${bust}`, { headers })
       .then((r) => (r.ok ? r.text() : ''))
       .then(setMetrics)
+    void fetch(`${jobFileUrl(job.id, 'outputs/main.initial.kcl')}?${bust}`, { headers })
+      .then((r) => (r.ok ? r.text() : ''))
+      .then(setInitialKcl)
   }, [job?.id, job?.status, job?.updated_at])
 
   useEffect(() => {
     stickLogToBottom.current = true
     setKcl('')
+    setInitialKcl('')
     setMetrics('')
+    setAlignResult(null)
+    setAlignError(null)
+    setHeatmapOn(false)
+    setNudge({ translate: [0, 0, 0], rotateDeg: [0, 0, 0], scale: 1 })
   }, [selectedId])
 
   useEffect(() => {
@@ -544,12 +573,36 @@ export default function App() {
       return hay.includes(q)
     })
   }, [jobs, jobQuery, jobStatusFilter, jobTimeFilter])
+
+  // Track whether the jobs list has content below the fold for the scroll fade.
+  const updateJobsHasMore = useCallback(() => {
+    const el = jobsListRef.current
+    if (!el) {
+      setJobsHasMore(false)
+      return
+    }
+    setJobsHasMore(el.scrollHeight - el.clientHeight - el.scrollTop > 4)
+  }, [])
+  const onJobsScroll = useCallback(() => updateJobsHasMore(), [updateJobsHasMore])
+  useEffect(() => {
+    updateJobsHasMore()
+    const el = jobsListRef.current
+    if (!el) return
+    const ro = new ResizeObserver(updateJobsHasMore)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [filteredJobs.length, updateJobsHasMore])
+
   const metricsTable = useMemo(
     () => (metricsObj ? flattenMetrics(metricsObj) : []),
     [metricsObj],
   )
   const kclHtml = useMemo(() => highlightKcl(kcl), [kcl])
   const metricsHtml = useMemo(() => highlightJson(metrics), [metrics])
+  const kclDiffLines = useMemo(
+    () => collapseSame(diffLines(initialKcl, kcl)),
+    [initialKcl, kcl],
+  )
 
   const jobSeconds = useMemo(() => {
     if (!job?.created_at) return null
@@ -729,6 +782,38 @@ export default function App() {
     }
   }
 
+  async function applyRefineSnippet(id: string) {
+    setRefineSnippetId(id)
+    const snippet = REFINE_SNIPPETS.find((s) => s.id === id)
+    if (!snippet) {
+      setRefinePkgPhotos([])
+      setRefinePkgMeshes([])
+      return
+    }
+    setRefine(snippet.prompt.slice(0, REFINE_MAX))
+    if (!snippet.attach) {
+      setRefinePkgPhotos([])
+      setRefinePkgMeshes([])
+      return
+    }
+    try {
+      const fetchFile = async (name: string): Promise<File> => {
+        const res = await fetch(demoAssetUrl(snippet.attach!.demoId, name))
+        if (!res.ok) throw new Error(`demo asset ${name} ${res.status}`)
+        const blob = await res.blob()
+        return new File([blob], name, { type: blob.type || 'application/octet-stream' })
+      }
+      const photos = await Promise.all((snippet.attach.photos ?? []).map(fetchFile))
+      const meshes = await Promise.all((snippet.attach.meshes ?? []).map(fetchFile))
+      setRefinePkgPhotos(photos)
+      setRefinePkgMeshes(meshes)
+    } catch (err) {
+      reportError(`Could not load refine package assets: ${(err as Error).message}`)
+      setRefinePkgPhotos([])
+      setRefinePkgMeshes([])
+    }
+  }
+
   async function onRefine(e: FormEvent) {
     e.preventDefault()
     if (!job || !refine.trim() || !canRefine) return
@@ -738,20 +823,25 @@ export default function App() {
     }
     setError(null)
     try {
+      const photos = [...(refinePhotos ? Array.from(refinePhotos) : []), ...refinePkgPhotos]
+      const meshes = [...(refineMeshes ? Array.from(refineMeshes) : []), ...refinePkgMeshes]
       const updated = await refineJob(job.id, refine.trim(), {
-        photos: refinePhotos,
-        meshes: refineMeshes,
+        photos: photos.length ? photos : null,
+        meshes: meshes.length ? meshes : null,
       })
       setJob(updated)
       setRefine('')
       setRefinePhotos(null)
       setRefineMeshes(null)
+      setRefinePkgPhotos([])
+      setRefinePkgMeshes([])
+      setRefineSnippetId('')
       setKcl('')
       setMetrics('')
       setDetailTab('compare')
       appLog(
         `Refine queued on ${job.id.slice(-8)}` +
-          (refinePhotos?.length || refineMeshes?.length ? ' with attachments' : ''),
+          (photos.length || meshes.length ? ' with attachments' : ''),
       )
       await refreshJobs()
     } catch (err) {
@@ -884,8 +974,12 @@ export default function App() {
   const showJobReference = Boolean(job && hasReference)
   const showLocalReference = Boolean(localMeshUrl)
   const refineAttachHint = [
-    refinePhotos?.length ? `${refinePhotos.length} photo(s)` : null,
-    refineMeshes?.length ? `${refineMeshes.length} mesh(es)` : null,
+    (refinePhotos?.length ?? 0) + refinePkgPhotos.length
+      ? `${(refinePhotos?.length ?? 0) + refinePkgPhotos.length} photo(s)`
+      : null,
+    (refineMeshes?.length ?? 0) + refinePkgMeshes.length
+      ? `${(refineMeshes?.length ?? 0) + refinePkgMeshes.length} mesh(es)`
+      : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -1034,9 +1128,10 @@ export default function App() {
               </p>
             )}
           </div>
-          <ul>
-            {filteredJobs.map((j) => (
-              <li key={j.id} className="job-row">
+          <div className={`jobs-list-wrap${jobsHasMore ? ' has-more' : ''}`}>
+            <ul ref={jobsListRef} onScroll={onJobsScroll}>
+              {filteredJobs.map((j) => (
+                <li key={j.id} className="job-row">
                 <button
                   type="button"
                   className={`job-select${j.id === selectedId ? ' active' : ''}`}
@@ -1075,14 +1170,20 @@ export default function App() {
                     Delete
                   </button>
                 </div>
-              </li>
-            ))}
-            {!jobs.length ? (
-              <li className="muted empty">No jobs yet</li>
-            ) : !filteredJobs.length ? (
-              <li className="muted empty">No jobs match this filter</li>
+                </li>
+              ))}
+              {!jobs.length ? (
+                <li className="muted empty">No jobs yet</li>
+              ) : !filteredJobs.length ? (
+                <li className="muted empty">No jobs match this filter</li>
+              ) : null}
+            </ul>
+            {filteredJobs.length > 0 ? (
+              <div className="jobs-end" aria-hidden="true">
+                {jobsHasMore ? `${filteredJobs.length} jobs · scroll for more` : `${filteredJobs.length} jobs · end of list`}
+              </div>
             ) : null}
-          </ul>
+          </div>
         </aside>
 
         <main className="main-col">
@@ -1251,6 +1352,120 @@ export default function App() {
                         </label>
                       </div>
                     ) : null}
+                    {showJobReference && hasGenerated ? (
+                      <div className="align-controls">
+                        <button
+                          type="button"
+                          className="viewport-btn"
+                          disabled={alignBusy}
+                          onClick={() => {
+                            if (!job) return
+                            setAlignBusy(true)
+                            setAlignError(null)
+                            alignJob(job.id)
+                              .then((res) => {
+                                setAlignResult(res)
+                                setHeatmapOn(true)
+                              })
+                              .catch((e: Error) => setAlignError(e.message))
+                              .finally(() => setAlignBusy(false))
+                          }}
+                          title="ICP-align generated mesh onto reference and compute deviation"
+                        >
+                          {alignBusy ? 'Aligning…' : alignResult ? 'Re-align' : 'Align + deviation'}
+                        </button>
+                        {alignResult ? (
+                          <>
+                            <button
+                              type="button"
+                              className={`viewport-btn${heatmapOn ? ' active' : ''}`}
+                              onClick={() => setHeatmapOn((v) => !v)}
+                              title="Color generated mesh by distance to reference"
+                            >
+                              Heatmap
+                            </button>
+                            <button
+                              type="button"
+                              className="viewport-btn"
+                              onClick={() => {
+                                setAlignResult(null)
+                                setHeatmapOn(false)
+                                setNudge({ translate: [0, 0, 0], rotateDeg: [0, 0, 0], scale: 1 })
+                              }}
+                              title="Clear alignment and nudge"
+                            >
+                              Reset
+                            </button>
+                            <span className="align-stats muted">
+                              mean {alignResult.stats.mean?.toFixed(2) ?? '—'}mm · p95{' '}
+                              {alignResult.stats.p95?.toFixed(2) ?? '—'}mm · max{' '}
+                              {alignResult.stats.max?.toFixed(2) ?? '—'}mm
+                            </span>
+                          </>
+                        ) : null}
+                        {alignError ? <span className="align-error">{alignError}</span> : null}
+                      </div>
+                    ) : null}
+                    {alignResult ? (
+                      <div className="nudge-controls">
+                        {(['X', 'Y', 'Z'] as const).map((axis, i) => (
+                          <label key={`t-${axis}`}>
+                            T{axis}
+                            <input
+                              type="range"
+                              min={-10}
+                              max={10}
+                              step={0.1}
+                              value={nudge.translate[i]}
+                              onChange={(e) => {
+                                const v = Number(e.target.value)
+                                setNudge((n) => {
+                                  const t = [...n.translate] as [number, number, number]
+                                  t[i] = v
+                                  return { ...n, translate: t }
+                                })
+                              }}
+                            />
+                            <span className="nudge-val">{nudge.translate[i].toFixed(1)}</span>
+                          </label>
+                        ))}
+                        {(['X', 'Y', 'Z'] as const).map((axis, i) => (
+                          <label key={`r-${axis}`}>
+                            R{axis}°
+                            <input
+                              type="range"
+                              min={-180}
+                              max={180}
+                              step={1}
+                              value={nudge.rotateDeg[i]}
+                              onChange={(e) => {
+                                const v = Number(e.target.value)
+                                setNudge((n) => {
+                                  const r = [...n.rotateDeg] as [number, number, number]
+                                  r[i] = v
+                                  return { ...n, rotateDeg: r }
+                                })
+                              }}
+                            />
+                            <span className="nudge-val">{nudge.rotateDeg[i].toFixed(0)}</span>
+                          </label>
+                        ))}
+                        <label>
+                          Scale
+                          <input
+                            type="range"
+                            min={0.8}
+                            max={1.2}
+                            step={0.005}
+                            value={nudge.scale}
+                            onChange={(e) =>
+                              setNudge((n) => ({ ...n, scale: Number(e.target.value) }))
+                            }
+                          />
+                          <span className="nudge-val">{nudge.scale.toFixed(3)}</span>
+                        </label>
+                      </div>
+                    ) : null}
                   </div>
                   {compareMode === 'overlay' && showJobReference && hasGenerated ? (
                     <div className="compare compare-overlay">
@@ -1264,6 +1479,16 @@ export default function App() {
                         primaryOpacity={genOpacity}
                         overlayOpacity={refOpacity}
                         downloads={generatedDownloads}
+                        alignTransform={alignResult?.transform ?? null}
+                        heatmap={
+                          heatmapOn && alignResult
+                            ? {
+                                vertexIndices: alignResult.vertex_indices,
+                                distances: alignResult.distances,
+                              }
+                            : null
+                        }
+                        nudge={nudge}
                       />
                     </div>
                   ) : (
@@ -1301,6 +1526,16 @@ export default function App() {
                           label="Generated mesh"
                           accent="var(--mesh-gen)"
                           downloads={generatedDownloads}
+                          alignTransform={alignResult?.transform ?? null}
+                          heatmap={
+                            heatmapOn && alignResult
+                              ? {
+                                  vertexIndices: alignResult.vertex_indices,
+                                  distances: alignResult.distances,
+                                }
+                              : null
+                          }
+                          nudge={nudge}
                         />
                       ) : (
                         <div className="viewport-shell">
@@ -1602,26 +1837,63 @@ export default function App() {
                     >
                       <div className="panel-head-row">
                         <h3>main.kcl</h3>
-                        <button
-                          type="button"
-                          className="linkish"
-                          disabled={!kcl}
-                          onClick={() =>
-                            void downloadAuth(job.id, 'outputs/main.kcl', 'main.kcl')
-                          }
-                        >
-                          Download
-                        </button>
+                        <div className="panel-head-actions">
+                          {initialKcl && initialKcl !== kcl ? (
+                            <div className="view-toggle" role="group" aria-label="KCL view">
+                              <button
+                                type="button"
+                                className={kclView === 'current' ? 'active' : ''}
+                                onClick={() => setKclView('current')}
+                              >
+                                Current
+                              </button>
+                              <button
+                                type="button"
+                                className={kclView === 'diff' ? 'active' : ''}
+                                onClick={() => setKclView('diff')}
+                              >
+                                Diff vs initial
+                              </button>
+                            </div>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="linkish"
+                            disabled={!kcl}
+                            onClick={() =>
+                              void downloadAuth(job.id, 'outputs/main.kcl', 'main.kcl')
+                            }
+                          >
+                            Download
+                          </button>
+                        </div>
                       </div>
-                      {kcl ? (
+                      {!kcl ? (
+                        <pre className="kcl muted-pre">
+                          (available when job succeeds)
+                        </pre>
+                      ) : kclView === 'diff' && initialKcl ? (
+                        <pre className="kcl kcl-diff">
+                          {kclDiffLines.map((line, idx) =>
+                            line.kind === 'gap' ? (
+                              <div key={idx} className="diff-gap">
+                                ⋮ {line.count} unchanged line{line.count === 1 ? '' : 's'}
+                              </div>
+                            ) : (
+                              <div key={idx} className={`diff-line diff-${line.kind}`}>
+                                <span className="diff-sign">
+                                  {line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ' '}
+                                </span>
+                                {line.text || ' '}
+                              </div>
+                            ),
+                          )}
+                        </pre>
+                      ) : (
                         <pre
                           className="kcl code-hl"
                           dangerouslySetInnerHTML={{ __html: kclHtml }}
                         />
-                      ) : (
-                        <pre className="kcl muted-pre">
-                          (available when job succeeds)
-                        </pre>
                       )}
                     </div>
                   </div>
@@ -1667,6 +1939,22 @@ export default function App() {
                     for updated reference.
                   </p>
                 </div>
+                <label>
+                  Snippet
+                  <select
+                    value={refineSnippetId}
+                    disabled={!canRefine}
+                    onChange={(e) => void applyRefineSnippet(e.target.value)}
+                  >
+                    <option value="">Custom instruction…</option>
+                    {REFINE_SNIPPETS.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.title}
+                        {s.attach ? ' (package)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <label>
                   Instruction
                   <textarea

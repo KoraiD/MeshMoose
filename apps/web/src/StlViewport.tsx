@@ -25,6 +25,12 @@ type Props = {
   /** Overlay mesh opacity 0–1 */
   overlayOpacity?: number
   compact?: boolean
+  /** 4x4 row-major transform applied to the primary mesh (ICP alignment). */
+  alignTransform?: number[] | null
+  /** Per-vertex deviation (mm) + indices for heatmap coloring of the primary mesh. */
+  heatmap?: { vertexIndices: number[]; distances: number[] } | null
+  /** Manual nudge applied to the primary mesh, on top of alignTransform. */
+  nudge?: { translate: [number, number, number]; rotateDeg: [number, number, number]; scale: number } | null
 }
 
 function needsAuth(url: string): boolean {
@@ -72,6 +78,27 @@ function loadGeometry(src: string): Promise<THREE.BufferGeometry> {
   })
 }
 
+// Cache parsed geometry by source URL so toggling Compare/overlay doesn't
+// re-fetch and re-parse the same STL on every render. Keyed by the resolved
+// (blob or direct) URL; entries are bounded and disposed on eviction.
+const GEOMETRY_CACHE_LIMIT = 12
+const geometryCache = new Map<string, THREE.BufferGeometry>()
+
+async function getCachedGeometry(src: string): Promise<THREE.BufferGeometry> {
+  const hit = geometryCache.get(src)
+  if (hit) return hit.clone()
+  const geometry = await loadGeometry(src)
+  if (geometryCache.size >= GEOMETRY_CACHE_LIMIT) {
+    const oldest = geometryCache.keys().next().value
+    if (oldest !== undefined) {
+      geometryCache.get(oldest)?.dispose()
+      geometryCache.delete(oldest)
+    }
+  }
+  geometryCache.set(src, geometry)
+  return geometry.clone()
+}
+
 export function StlViewport({
   url,
   label,
@@ -82,6 +109,9 @@ export function StlViewport({
   primaryOpacity = 1,
   overlayOpacity = 0.35,
   compact = false,
+  alignTransform = null,
+  heatmap = null,
+  nudge = null,
 }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null)
   const groupRef = useRef<THREE.Group | null>(null)
@@ -179,6 +209,73 @@ export function StlViewport({
       }
     }
   }, [overlayOpacity])
+
+  // Apply ICP transform + manual nudge to the primary mesh. Nudge composes on
+  // top of alignment so users can fine-tune after auto-align.
+  useEffect(() => {
+    const mesh = meshRef.current
+    if (!mesh) return
+    const base = new THREE.Matrix4()
+    if (alignTransform && alignTransform.length === 16) {
+      base.fromArray(alignTransform)
+    }
+    mesh.matrixAutoUpdate = false
+    mesh.matrix.copy(base)
+    if (nudge) {
+      const t = new THREE.Matrix4().makeTranslation(...nudge.translate)
+      const r = new THREE.Matrix4().makeRotationFromEuler(
+        new THREE.Euler(
+          (nudge.rotateDeg[0] * Math.PI) / 180,
+          (nudge.rotateDeg[1] * Math.PI) / 180,
+          (nudge.rotateDeg[2] * Math.PI) / 180,
+        ),
+      )
+      const s = new THREE.Matrix4().makeScale(nudge.scale, nudge.scale, nudge.scale)
+      mesh.matrix.multiply(t).multiply(r).multiply(s)
+    }
+    mesh.matrixWorldNeedsUpdate = true
+  }, [alignTransform, nudge, themeTick])
+
+  // Heatmap: color the primary mesh by per-vertex deviation (blue → red).
+  useEffect(() => {
+    const mesh = meshRef.current
+    if (!mesh) return
+    const geometry = mesh.geometry
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    const mat = mats[0]
+    if (!(mat instanceof THREE.MeshStandardMaterial)) return
+
+    if (!heatmap || heatmap.distances.length === 0) {
+      geometry.deleteAttribute('color')
+      mat.vertexColors = false
+      mat.color.set(meshAccent)
+      mat.needsUpdate = true
+      return
+    }
+
+    const max = Math.max(...heatmap.distances, 1e-6)
+    const colors = new Float32Array(geometry.attributes.position.count * 3)
+    const cLow = new THREE.Color('#2563eb')
+    const cMid = new THREE.Color('#facc15')
+    const cHigh = new THREE.Color('#dc2626')
+    const tmp = new THREE.Color()
+    for (let i = 0; i < heatmap.vertexIndices.length; i++) {
+      const vi = heatmap.vertexIndices[i]
+      const d = Math.min(heatmap.distances[i] / max, 1)
+      if (d < 0.5) {
+        tmp.lerpColors(cLow, cMid, d * 2)
+      } else {
+        tmp.lerpColors(cMid, cHigh, (d - 0.5) * 2)
+      }
+      colors[vi * 3] = tmp.r
+      colors[vi * 3 + 1] = tmp.g
+      colors[vi * 3 + 2] = tmp.b
+    }
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    mat.vertexColors = true
+    mat.color.set('#ffffff')
+    mat.needsUpdate = true
+  }, [heatmap])
 
   useEffect(() => {
     const mount = mountRef.current
@@ -283,7 +380,7 @@ export function StlViewport({
         const primarySrc = await fetchStlObjectUrl(url)
         if (primarySrc !== url) revoke.push(primarySrc)
         if (disposed) return
-        const geometry = await loadGeometry(primarySrc)
+        const geometry = await getCachedGeometry(primarySrc)
         if (disposed) {
           geometry.dispose()
           return
@@ -307,7 +404,7 @@ export function StlViewport({
             const overlaySrc = await fetchStlObjectUrl(overlayUrl)
             if (overlaySrc !== overlayUrl) revoke.push(overlaySrc)
             if (!disposed) {
-              const og = await loadGeometry(overlaySrc)
+              const og = await getCachedGeometry(overlaySrc)
               if (!disposed) {
                 og.computeVertexNormals()
                 const om = new THREE.MeshStandardMaterial({

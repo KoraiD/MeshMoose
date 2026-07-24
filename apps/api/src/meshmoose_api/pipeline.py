@@ -70,6 +70,10 @@ def run_job(store: JobStore, job_id: str, token: str) -> None:
             raise RuntimeError("Agent did not return main.kcl")
 
         (paths.outputs / "main.kcl").write_text(main_kcl, encoding="utf-8")
+        # Snapshot the first reconstruction so the UI can diff initial vs current.
+        initial_kcl = paths.outputs / "main.initial.kcl"
+        if not initial_kcl.is_file():
+            initial_kcl.write_text(main_kcl, encoding="utf-8")
         (paths.outputs / "assistant.md").write_text(
             result.get("assistant_text") or "", encoding="utf-8"
         )

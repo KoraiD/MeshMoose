@@ -274,6 +274,106 @@ def test_cli_jobs_retry(api_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
         pass
 
 
+def test_cli_jobs_rename(api_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
+    transport = _TestTransport(api_app)
+    real = MeshMooseClient(base_url="http://test", token="t", transport=transport)  # type: ignore[arg-type]
+    photo = tmp_path / "p.jpg"
+    mesh = tmp_path / "m.stl"
+    photo.write_bytes(b"\xff\xd8\xff\xd9")
+    mesh.write_bytes(b"solid x\nendsolid x\n")
+    job = real.create_job(prompt="x", photos=[photo], meshes=[mesh], mode="fast", title="Old")
+
+    def fake_client(*_a: Any, **_k: Any) -> MeshMooseClient:
+        return MeshMooseClient(
+            base_url="http://test",
+            token="t",
+            transport=_TestTransport(api_app),  # type: ignore[arg-type]
+        )
+
+    monkeypatch.setattr("meshmoose_api.cli.MeshMooseClient", fake_client)
+    code = cli_main(
+        ["jobs", "rename", job["id"], "--title", "New title", "--tag", "coin", "--tag", "pla"]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "New title" in out
+    updated = real.get_job(job["id"])
+    assert updated["title"] == "New title"
+    assert updated["tags"] == ["coin", "pla"]
+    real.delete_job(job["id"])
+    try:
+        real.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def test_cli_jobs_rename_requires_field(api_app, monkeypatch: pytest.MonkeyPatch, capsys):
+    def fake_client(*_a: Any, **_k: Any) -> MeshMooseClient:
+        return MeshMooseClient(
+            base_url="http://test",
+            token="t",
+            transport=_TestTransport(api_app),  # type: ignore[arg-type]
+        )
+
+    monkeypatch.setattr("meshmoose_api.cli.MeshMooseClient", fake_client)
+    code = cli_main(["jobs", "rename", "some-id"])
+    assert code == 2
+    assert "--title" in capsys.readouterr().err
+
+
+def test_cli_jobs_logs(api_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
+    transport = _TestTransport(api_app)
+    real = MeshMooseClient(base_url="http://test", token="t", transport=transport)  # type: ignore[arg-type]
+    photo = tmp_path / "p.jpg"
+    mesh = tmp_path / "m.stl"
+    photo.write_bytes(b"\xff\xd8\xff\xd9")
+    mesh.write_bytes(b"solid x\nendsolid x\n")
+    job = real.create_job(prompt="x", photos=[photo], meshes=[mesh], mode="fast")
+    # The create already emits a "Job created" line into outputs/job.log.
+
+    def fake_client(*_a: Any, **_k: Any) -> MeshMooseClient:
+        return MeshMooseClient(
+            base_url="http://test",
+            token="t",
+            transport=_TestTransport(api_app),  # type: ignore[arg-type]
+        )
+
+    monkeypatch.setattr("meshmoose_api.cli.MeshMooseClient", fake_client)
+    code = cli_main(["jobs", "logs", job["id"]])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Job created" in out
+    real.delete_job(job["id"])
+    try:
+        real.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def test_cli_jobs_logs_missing(api_app, monkeypatch: pytest.MonkeyPatch, capsys):
+    def fake_client(*_a: Any, **_k: Any) -> MeshMooseClient:
+        return MeshMooseClient(
+            base_url="http://test",
+            token="t",
+            transport=_TestTransport(api_app),  # type: ignore[arg-type]
+        )
+
+    monkeypatch.setattr("meshmoose_api.cli.MeshMooseClient", fake_client)
+    code = cli_main(["jobs", "logs", "nonexistent-job"])
+    assert code == 1
+    assert "job.log" in capsys.readouterr().err
+
+
+def test_cli_completion(capsys):
+    code = cli_main(["completion", "bash"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "complete -F _meshmoose meshmoose" in out
+    code = cli_main(["completion", "zsh"])
+    assert code == 0
+    assert "#compdef meshmoose" in capsys.readouterr().out
+
+
 def test_openapi_docs_available(api_app):
     with TestClient(api_app) as http:
         res = http.get("/openapi.json")

@@ -23,7 +23,8 @@ Requires the API process (`npm run dev` or `npm run dev:api`) unless you only us
 
 ```text
 meshmoose health
-meshmoose usage
+meshmoose completion bash|zsh
+meshmoose usage [--watch] [--interval SECS]
 meshmoose demos list
 meshmoose demos run <demo_id> [--mode] [--prompt] [--wait] [--timeout]
 meshmoose jobs list
@@ -33,6 +34,8 @@ meshmoose jobs wait <id> [--timeout]
 meshmoose jobs cancel <id>
 meshmoose jobs retry <id> [--wait] [--timeout]
 meshmoose jobs delete <id>
+meshmoose jobs rename <id> [--title TEXT] [--tag TAG ...]
+meshmoose jobs logs <id> [--lines N]
 meshmoose jobs refine <id> --message TEXT [--photo] [--mesh] [--wait]
 meshmoose jobs finish <id> --preset PRESET [--wait]
 meshmoose jobs finish --list-presets
@@ -48,6 +51,19 @@ Every subcommand supports `--help` with examples.
 `jobs retry` clones a **failed** job’s prompt, title, tags, and input files into a new run (same as `POST /jobs/{id}/retry`).
 
 `jobs finish` patches `main.kcl` with a PBR `appearance(...)` preset and re-exports STL / STEP / 3MF (no Agent call).
+
+`jobs rename` updates the title and/or replaces tags (same as `PATCH /jobs/{id}`). Omit `--tag` to keep existing tags.
+
+`jobs logs` prints the tail of a job's human-readable `outputs/job.log`.
+
+`usage --watch` polls credits / recent-call totals every `--interval` seconds until interrupted — handy while a long `thoughtful` run burns minutes.
+
+`completion` prints a shell completion script. Enable it with:
+
+```bash
+eval "$(meshmoose completion bash)"   # bash
+eval "$(meshmoose completion zsh)"    # zsh (or save to a directory on your fpath)
+```
 
 ## Finish presets
 

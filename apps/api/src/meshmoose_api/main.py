@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from meshmoose_api import __version__
+from meshmoose_api.align import align_meshes
 from meshmoose_api.config import ROOT, configure_logging, data_dir
 from meshmoose_api.finishes import get_finish_preset, list_finish_presets
 from meshmoose_api.jobs import AGENT_MODES, JobStatus, JobStore, normalize_tags
@@ -231,6 +232,29 @@ async def job_events(job_id: str, _: str = Depends(require_token)) -> StreamingR
                 yield f"data: {json.dumps(ev)}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.post("/jobs/{job_id}/align", tags=["jobs"])
+def align_job(job_id: str, _: str = Depends(require_token)) -> dict:
+    """ICP-align generated mesh onto reference and compute per-vertex deviation."""
+    try:
+        store.get(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+    paths = store.paths(job_id)
+    ref = paths.outputs / "reference.stl"
+    gen = paths.outputs / "generated.stl"
+    if not ref.is_file() or not gen.is_file():
+        raise HTTPException(
+            status_code=400,
+            detail="Both reference.stl and generated.stl are required — run a successful job first",
+        )
+    try:
+        return align_meshes(reference_stl=ref, generated_stl=gen)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Alignment failed: {exc}") from exc
 
 
 @app.get("/jobs/{job_id}/artifacts", tags=["jobs"])

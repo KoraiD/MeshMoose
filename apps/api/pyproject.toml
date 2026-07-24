@@ -17,6 +17,7 @@ dependencies = [
   "numpy>=2.0",
   "scipy>=1.11",
   "trimesh>=4.5.0",
+  "rtree>=1.2",
   "lxml>=5.0",
   "networkx>=3.0",
   "zoo-kcl>=0.3.169",

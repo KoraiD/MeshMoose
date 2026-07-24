@@ -1,0 +1,8 @@
+{
+  "title": "Brick wall segment",
+  "description": "Small running-bond brick wall segment used as a refine reference package — attach its mesh and photo to project a brick pattern onto a model's surface.",
+  "prompt": "Recreate this running-bond brick wall segment as parametric KCL: individual bricks with recessed mortar joints between courses. Keep brick length, height, depth, and joint width as editable dimensions.",
+  "mode": "fast",
+  "photos": ["brick_photo.jpg"],
+  "meshes": ["brick_segment.stl"]
+}
