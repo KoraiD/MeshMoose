@@ -67,21 +67,32 @@ class JobLogger:
         return event
 
     def read_events(self, after: int = 0) -> list[dict[str, Any]]:
-        """Return parsed events with index >= after (event count, not file line)."""
+        """Return parsed events with index >= after (event count, not file line).
+
+        ``emit`` writes one JSON object per non-empty line, so the already-seen
+        prefix is skipped by counting lines — no ``json.loads`` until ``after``.
+        """
+        events, _next = self.read_events_with_cursor(after)
+        return events
+
+    def read_events_with_cursor(self, after: int = 0) -> tuple[list[dict[str, Any]], int]:
+        """Like ``read_events``, also returning the next cursor index."""
         if not self.events_path.is_file():
-            return []
+            return [], max(0, after)
         events: list[dict[str, Any]] = []
         idx = 0
         with self.events_path.open(encoding="utf-8") as fh:
             for line in fh:
-                line = line.strip()
-                if not line:
+                raw = line.strip()
+                if not raw:
+                    continue
+                if idx < after:
+                    idx += 1
                     continue
                 try:
-                    ev = json.loads(line)
+                    events.append(json.loads(raw))
                 except json.JSONDecodeError:
-                    continue
-                if idx >= after:
-                    events.append(ev)
+                    # Still advance so a corrupt line cannot stall the SSE cursor.
+                    pass
                 idx += 1
-        return events
+        return events, idx
