@@ -442,7 +442,7 @@ select:focus-visible {
 
 .job-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
   gap: 0.35rem;
   align-items: stretch;
 }
@@ -2094,6 +2094,157 @@ button.linkish:hover:not(:disabled) {
   color: var(--ink);
 }
 
+.refine-package {
+  margin-top: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.refine-package-label {
+  display: block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+
+.refine-package-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attach-chip.photo {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+
+.attach-chip.mesh {
+  border-color: color-mix(in srgb, var(--mesh-gen, #0d9488) 50%, var(--line));
+}
+
+.refine-package-clear {
+  font-size: 0.72rem;
+}
+
+.reference-select {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.reference-select select {
+  font-size: 0.76rem;
+  padding: 0.25rem 0.4rem;
+  max-width: 14rem;
+}
+
+.jobs-modal {
+  max-width: 40rem;
+  width: min(40rem, 92vw);
+  max-height: 84vh;
+  overflow-y: auto;
+}
+
+.modal-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.jobs-modal-section {
+  margin-top: 1rem;
+}
+
+.jobs-modal-section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+}
+
+.jobs-modal-note {
+  margin: 0 0 0.5rem;
+  font-size: 0.74rem;
+}
+
+.jobs-modal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.jobs-modal-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.jobs-modal-main {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.jobs-modal-main.as-text {
+  cursor: default;
+}
+
+.jobs-modal-title {
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jobs-modal-meta {
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.jobs-modal-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.pill.engine {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+
 .kcl-diff {
   font-size: 0.72rem;
   line-height: 1.4;
@@ -2101,6 +2252,7 @@ button.linkish:hover:not(:disabled) {
 }
 
 .diff-line {
+  display: block;
   white-space: pre;
   padding: 0 0.25rem;
 }
@@ -2130,6 +2282,7 @@ button.linkish:hover:not(:disabled) {
 }
 
 .diff-gap {
+  display: block;
   padding: 0.1rem 0.25rem;
   color: var(--muted);
   font-style: italic;

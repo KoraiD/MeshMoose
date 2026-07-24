@@ -22,6 +22,22 @@ describe('diffLines', () => {
     const out = diffLines('', 'a\nb')
     expect(out.filter((l) => l.kind === 'add')).toHaveLength(2)
   })
+
+  it('produces no spurious deletion for empty old text', () => {
+    const out = diffLines('', 'x')
+    expect(out.some((l) => l.kind === 'del')).toBe(false)
+    expect(out).toEqual([{ kind: 'add', text: 'x' }])
+  })
+
+  it('produces no spurious addition for empty new text', () => {
+    const out = diffLines('x', '')
+    expect(out.some((l) => l.kind === 'add')).toBe(false)
+    expect(out).toEqual([{ kind: 'del', text: 'x' }])
+  })
+
+  it('treats two empty texts as an empty diff', () => {
+    expect(diffLines('', '')).toEqual([])
+  })
 })
 
 describe('collapseSame', () => {

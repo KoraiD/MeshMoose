@@ -19,9 +19,12 @@ import {
   subscribeJobEvents,
   alignJob,
   demoAssetUrl,
+  getReference,
+  setReference,
   type AlignResult,
   type Artifact,
   type Demo,
+  type ReferenceInfo,
   type FinishPreset,
   type Job,
   type JobEvent,
@@ -32,6 +35,12 @@ import { AuthImage } from './AuthImage'
 import { DocsPage } from './DocsPage'
 import { flattenMetrics, highlightJson, highlightKcl } from './highlight'
 import { collapseSame, diffLines } from './kclDiff'
+import {
+  listEngineSessions,
+  registerEngineSession,
+  subscribeEngineSessions,
+  unregisterEngineSession,
+} from './engineSessions'
 import { MarkdownView } from './MarkdownView'
 import {
   convertVolumeFromCm3,
@@ -43,6 +52,7 @@ import {
 } from './metricUnits'
 import { listPromptTemplates, type PromptTemplate } from './promptTemplates'
 import { REFINE_SNIPPETS } from './refineSnippets'
+import { JobsModal } from './JobsModal'
 import { SettingsModal } from './SettingsModal'
 import { StlViewport } from './StlViewport'
 import { applyTheme, getThemePreference } from './theme'
@@ -268,7 +278,7 @@ export default function App() {
   const [metricsView, setMetricsView] = useState<'json' | 'table'>('json')
   const [nowTick, setNowTick] = useState(() => Date.now())
   const [appView, setAppView] = useState<'app' | 'docs'>('app')
-  const [compareMode, setCompareMode] = useState<'side' | 'overlay'>('side')
+  const [compareMode, setCompareMode] = useState<'side' | 'overlay'>('overlay')
   const [refOpacity, setRefOpacity] = useState(0.45)
   const [genOpacity, setGenOpacity] = useState(1)
   const [alignResult, setAlignResult] = useState<AlignResult | null>(null)
@@ -280,6 +290,8 @@ export default function App() {
     rotateDeg: [number, number, number]
     scale: number
   }>({ translate: [0, 0, 0], rotateDeg: [0, 0, 0], scale: 1 })
+  const [referenceInfo, setReferenceInfo] = useState<ReferenceInfo | null>(null)
+  const [referenceTick, setReferenceTick] = useState(0)
   const [volumeUnit, setVolumeUnitState] = useState<VolumeUnit>(() => getVolumeUnit())
   const [jobTitleDraft, setJobTitleDraft] = useState('')
   const [createTitle, setCreateTitle] = useState('')
@@ -294,6 +306,18 @@ export default function App() {
   const stickLogToBottom = useRef(true)
   const jobsListRef = useRef<HTMLUListElement>(null)
   const [jobsHasMore, setJobsHasMore] = useState(false)
+  const [jobsModalOpen, setJobsModalOpen] = useState(false)
+  const [engineSessions, setEngineSessions] = useState(listEngineSessions())
+
+  useEffect(() => subscribeEngineSessions(() => setEngineSessions(listEngineSessions())), [])
+
+  // Keep the engine-session registry in sync with the Live Engine tab.
+  useEffect(() => {
+    if (engineOn && job) {
+      registerEngineSession(job.id, job.title || job.id)
+      return () => unregisterEngineSession(job.id)
+    }
+  }, [engineOn, job?.id, job?.title])
 
   useEffect(() => {
     applyTheme(getThemePreference())
@@ -475,7 +499,8 @@ export default function App() {
     void fetch(`${jobFileUrl(job.id, 'outputs/main.initial.kcl')}?${bust}`, { headers })
       .then((r) => (r.ok ? r.text() : ''))
       .then(setInitialKcl)
-  }, [job?.id, job?.status, job?.updated_at])
+    void getReference(job.id).then(setReferenceInfo).catch(() => setReferenceInfo(null))
+  }, [job?.id, job?.status, job?.updated_at, referenceTick])
 
   useEffect(() => {
     stickLogToBottom.current = true
@@ -486,6 +511,7 @@ export default function App() {
     setAlignError(null)
     setHeatmapOn(false)
     setNudge({ translate: [0, 0, 0], rotateDeg: [0, 0, 0], scale: 1 })
+    setReferenceInfo(null)
   }, [selectedId])
 
   useEffect(() => {
@@ -927,6 +953,27 @@ export default function App() {
     }
   }
 
+  async function onCancelJobById(jobId: string) {
+    setError(null)
+    try {
+      const updated = await cancelJob(jobId)
+      if (job?.id === jobId) setJob(updated)
+      appLog(`Cancelled job ${jobId.slice(-8)}`, 'warn')
+      await refreshJobs()
+    } catch (err) {
+      reportError((err as Error).message)
+    }
+  }
+
+  function onStopEngine(jobId: string) {
+    if (job?.id === jobId) {
+      setEngineOn(false)
+      setDetailTab((t) => (t === 'engine' ? 'compare' : t))
+    }
+    unregisterEngineSession(jobId)
+    appLog(`Stopped live engine session for ${jobId.slice(-8)}`, 'warn')
+  }
+
   async function downloadAuth(jobId: string, relative: string, filename: string) {
     try {
       const res = await fetch(jobFileUrl(jobId, relative), {
@@ -1063,10 +1110,10 @@ export default function App() {
             <h2>Jobs</h2>
             <button
               type="button"
-              className="primary"
-              onClick={() => setCreateOpen(true)}
+              onClick={() => setJobsModalOpen(true)}
+              title="Open the full jobs list, in-progress runs, and engine sessions"
             >
-              New job
+              List
             </button>
           </div>
           <div className="jobs-filters">
@@ -1150,26 +1197,6 @@ export default function App() {
                   ) : null}
                   <span className="muted">{new Date(j.created_at).toLocaleString()}</span>
                 </button>
-                <div className="job-actions">
-                  {j.status === 'failed' ? (
-                    <button
-                      type="button"
-                      className="job-retry"
-                      title="Retry with the same prompt and files"
-                      onClick={() => void onRetryJob(j.id)}
-                    >
-                      Retry
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="job-delete"
-                    title="Delete job"
-                    onClick={() => void onDeleteJob(j.id)}
-                  >
-                    Delete
-                  </button>
-                </div>
                 </li>
               ))}
               {!jobs.length ? (
@@ -1326,6 +1353,33 @@ export default function App() {
                         Before / after
                       </button>
                     </div>
+                    {referenceInfo && referenceInfo.available.length > 1 ? (
+                      <label className="reference-select">
+                        Reference
+                        <select
+                          value={referenceInfo.active}
+                          onChange={(e) => {
+                            if (!job) return
+                            const source = e.target.value
+                            void setReference(job.id, source)
+                              .then(() => {
+                                setReferenceTick((n) => n + 1)
+                                appLog(`Reference mesh → ${source.split('/').pop()}`)
+                              })
+                              .catch((err: Error) => reportError(err.message))
+                          }}
+                          title="Which mesh is the reconstruction reference"
+                        >
+                          {referenceInfo.available.map((src) => (
+                            <option key={src} value={src}>
+                              {src === 'outputs/reference.stl'
+                                ? 'reference.stl (default)'
+                                : (src.split('/').pop() ?? src)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
                     {compareMode === 'overlay' && showJobReference && hasGenerated ? (
                       <div className="overlay-sliders">
                         <label>
@@ -1352,7 +1406,7 @@ export default function App() {
                         </label>
                       </div>
                     ) : null}
-                    {showJobReference && hasGenerated ? (
+                    {compareMode === 'overlay' && showJobReference && hasGenerated ? (
                       <div className="align-controls">
                         <button
                           type="button"
@@ -1406,7 +1460,7 @@ export default function App() {
                         {alignError ? <span className="align-error">{alignError}</span> : null}
                       </div>
                     ) : null}
-                    {alignResult ? (
+                    {compareMode === 'overlay' && alignResult ? (
                       <div className="nudge-controls">
                         {(['X', 'Y', 'Z'] as const).map((axis, i) => (
                           <label key={`t-${axis}`}>
@@ -1470,7 +1524,7 @@ export default function App() {
                   {compareMode === 'overlay' && showJobReference && hasGenerated ? (
                     <div className="compare compare-overlay">
                       <StlViewport
-                        key={`${job.id}-overlay-${referenceArt?.mtime}-${generatedArt?.mtime}`}
+                        key={`${job.id}-overlay-${referenceArt?.mtime}-${generatedArt?.mtime}-${referenceTick}`}
                         url={jobFileUrl(job.id, 'outputs/generated.stl')}
                         overlayUrl={jobFileUrl(job.id, 'outputs/reference.stl')}
                         label="Before / after overlay"
@@ -1495,7 +1549,7 @@ export default function App() {
                     <div className="compare">
                       {showJobReference ? (
                         <StlViewport
-                          key={`${job.id}-ref-${referenceArt?.mtime ?? hasReference}`}
+                          key={`${job.id}-ref-${referenceArt?.mtime ?? hasReference}-${referenceTick}`}
                           url={jobFileUrl(job.id, 'outputs/reference.stl')}
                           label="Reference mesh"
                           accent="var(--mesh-ref)"
@@ -1876,16 +1930,18 @@ export default function App() {
                         <pre className="kcl kcl-diff">
                           {kclDiffLines.map((line, idx) =>
                             line.kind === 'gap' ? (
-                              <div key={idx} className="diff-gap">
+                              <span key={idx} className="diff-gap">
                                 ⋮ {line.count} unchanged line{line.count === 1 ? '' : 's'}
-                              </div>
+                                {'\n'}
+                              </span>
                             ) : (
-                              <div key={idx} className={`diff-line diff-${line.kind}`}>
+                              <span key={idx} className={`diff-line diff-${line.kind}`}>
                                 <span className="diff-sign">
                                   {line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ' '}
                                 </span>
                                 {line.text || ' '}
-                              </div>
+                                {'\n'}
+                              </span>
                             ),
                           )}
                         </pre>
@@ -1988,6 +2044,34 @@ export default function App() {
                     />
                   </label>
                 </div>
+                {refinePkgPhotos.length || refinePkgMeshes.length ? (
+                  <div className="refine-package">
+                    <span className="refine-package-label">Package attachments</span>
+                    <div className="refine-package-chips">
+                      {refinePkgPhotos.map((f) => (
+                        <span key={`p-${f.name}`} className="attach-chip photo" title={f.name}>
+                          {f.name}
+                        </span>
+                      ))}
+                      {refinePkgMeshes.map((f) => (
+                        <span key={`m-${f.name}`} className="attach-chip mesh" title={f.name}>
+                          {f.name}
+                        </span>
+                      ))}
+                      <button
+                        type="button"
+                        className="linkish refine-package-clear"
+                        onClick={() => {
+                          setRefinePkgPhotos([])
+                          setRefinePkgMeshes([])
+                          setRefineSnippetId('')
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <p className={`hint ${refineLen > REFINE_MAX * 0.9 ? 'warn' : ''}`}>
                   {refineHint}
                   {refineAttachHint ? ` · attaching ${refineAttachHint}` : ''}
@@ -2246,6 +2330,28 @@ export default function App() {
           setTemplates(listPromptTemplates())
         }}
         onTokenChange={onTokenChange}
+      />
+      <JobsModal
+        open={jobsModalOpen}
+        jobs={jobs}
+        engineSessions={engineSessions}
+        onClose={() => setJobsModalOpen(false)}
+        onNewJob={() => {
+          setJobsModalOpen(false)
+          setCreateError(null)
+          setCreateOpen(true)
+        }}
+        onSelectJob={(id) => {
+          setSelectedId(id)
+          setJobsModalOpen(false)
+        }}
+        onDeleteJob={(id) => void onDeleteJob(id)}
+        onRetryJob={(id) => {
+          setJobsModalOpen(false)
+          void onRetryJob(id)
+        }}
+        onCancelJob={(id) => void onCancelJobById(id)}
+        onStopEngine={onStopEngine}
       />
     </div>
   )

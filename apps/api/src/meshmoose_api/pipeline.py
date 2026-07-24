@@ -159,7 +159,7 @@ def apply_finish_job(store: JobStore, job_id: str, token: str, preset_id: str) -
             log.emit("Finish aborted after export (cancelled)", level="warn", kind="status")
             return
 
-        ref = paths.outputs / "reference.stl"
+        ref = store.reference_path(job_id)
         if ref.is_file():
             store.set_status(job_id, JobStatus.MEASURING)
             try:
@@ -214,14 +214,9 @@ def refine_job(
             store.set_status(job_id, JobStatus.PREPROCESSING)
             agent_stl = paths.inputs / "mesh_for_agent_refine.stl"
             ensure_stl_for_agent(mesh_paths, agent_stl, log=log)
-            ref = paths.outputs / "reference.stl"
-            ref.write_bytes(agent_stl.read_bytes())
-            log.emit(
-                "Updated reference mesh from refine attachment",
-                kind="artifact",
-                path="outputs/reference.stl",
-                name="reference.stl",
-            )
+            # Do NOT overwrite reference.stl here — a refine texture/reference mesh
+            # is guidance for the Agent, not necessarily the part being rebuilt.
+            # The user picks which mesh is the Compare reference (see /reference).
 
         log.emit(
             f"Starting refine ({len(message)} chars, "
@@ -270,7 +265,7 @@ def refine_job(
             log.emit("Refine aborted after export (cancelled)", level="warn", kind="status")
             return
 
-        ref = paths.outputs / "reference.stl"
+        ref = store.reference_path(job_id)
         if ref.is_file():
             store.set_status(job_id, JobStatus.MEASURING)
             try:

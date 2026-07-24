@@ -5,10 +5,16 @@ export type DiffLine = {
   text: string
 }
 
+function splitLines(text: string): string[] {
+  // ''.split('\n') yields [''], a spurious empty line; normalize empty → [].
+  if (text === '') return []
+  return text.split('\n')
+}
+
 /** Compute a compact line diff between two texts (old → new). */
 export function diffLines(oldText: string, newText: string): DiffLine[] {
-  const a = oldText.split('\n')
-  const b = newText.split('\n')
+  const a = splitLines(oldText)
+  const b = splitLines(newText)
   const n = a.length
   const m = b.length
 

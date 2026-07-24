@@ -594,6 +594,57 @@ def test_align_endpoint_requires_meshes(tmp_path: Path, monkeypatch: pytest.Monk
     assert res.status_code == 400
 
 
+def test_reference_select_endpoints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
+    from fastapi.testclient import TestClient
+
+    import meshmoose_api.main as main_mod
+    from meshmoose_api.jobs import JobStore as LiveStore
+
+    main_mod.store = LiveStore(tmp_path / "jobs")
+    client = TestClient(main_mod.app)
+    headers = {"Authorization": "Bearer test-token"}
+
+    meta = main_mod.store.create(prompt="coin", mode="fast")
+    job_id = meta["id"]
+    # Seed two input meshes + the normalized agent mesh.
+    main_mod.store.save_upload(job_id, "scan_a.stl", b"solid a\nendsolid a\n", "mesh")
+    main_mod.store.save_upload(job_id, "texture.stl", b"solid t\nendsolid t\n", "mesh")
+    (main_mod.store.paths(job_id).inputs / "mesh_for_agent.stl").write_bytes(
+        b"solid m\nendsolid m\n"
+    )
+
+    res = client.get(f"/jobs/{job_id}/reference", headers=headers)
+    assert res.status_code == 200
+    body = res.json()
+    # Default resolves to the normalized agent mesh.
+    assert body["active"] == "inputs/mesh_for_agent.stl"
+    assert "inputs/scan_a.stl" in body["available"]
+    assert "inputs/texture.stl" in body["available"]
+
+    # Switch the reference to the texture mesh.
+    res = client.put(
+        f"/jobs/{job_id}/reference",
+        headers=headers,
+        json={"source": "inputs/texture.stl"},
+    )
+    assert res.status_code == 200
+    assert res.json()["active"] == "inputs/texture.stl"
+
+    # The files endpoint now serves the texture mesh as reference.stl.
+    res = client.get(f"/jobs/{job_id}/files/outputs/reference.stl", headers=headers)
+    assert res.status_code == 200
+    assert res.content == b"solid t\nendsolid t\n"
+
+    # Reject an invalid source.
+    res = client.put(
+        f"/jobs/{job_id}/reference",
+        headers=headers,
+        json={"source": "inputs/nope.stl"},
+    )
+    assert res.status_code == 400
+
+
 def test_zoo_usage_requires_auth(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
     from fastapi.testclient import TestClient

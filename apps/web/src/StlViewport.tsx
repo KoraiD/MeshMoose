@@ -25,8 +25,8 @@ type Props = {
   /** Overlay mesh opacity 0–1 */
   overlayOpacity?: number
   compact?: boolean
-  /** 4x4 row-major transform applied to the primary mesh (ICP alignment). */
-  alignTransform?: number[] | null
+  /** 4×4 row-major transform (nested rows) applied to the primary mesh (ICP alignment). */
+  alignTransform?: number[][] | null
   /** Per-vertex deviation (mm) + indices for heatmap coloring of the primary mesh. */
   heatmap?: { vertexIndices: number[]; distances: number[] } | null
   /** Manual nudge applied to the primary mesh, on top of alignTransform. */
@@ -216,8 +216,14 @@ export function StlViewport({
     const mesh = meshRef.current
     if (!mesh) return
     const base = new THREE.Matrix4()
-    if (alignTransform && alignTransform.length === 16) {
-      base.fromArray(alignTransform)
+    if (alignTransform && alignTransform.length === 4 && alignTransform.every((r) => r.length === 4)) {
+      // Matrix4.set takes row-major arguments, matching the API's nested rows.
+      base.set(
+        alignTransform[0][0], alignTransform[0][1], alignTransform[0][2], alignTransform[0][3],
+        alignTransform[1][0], alignTransform[1][1], alignTransform[1][2], alignTransform[1][3],
+        alignTransform[2][0], alignTransform[2][1], alignTransform[2][2], alignTransform[2][3],
+        alignTransform[3][0], alignTransform[3][1], alignTransform[3][2], alignTransform[3][3],
+      )
     }
     mesh.matrixAutoUpdate = false
     mesh.matrix.copy(base)
@@ -254,22 +260,63 @@ export function StlViewport({
     }
 
     const max = Math.max(...heatmap.distances, 1e-6)
-    const colors = new Float32Array(geometry.attributes.position.count * 3)
+    const pos = geometry.attributes.position
+    const colors = new Float32Array(pos.count * 3)
     const cLow = new THREE.Color('#2563eb')
     const cMid = new THREE.Color('#facc15')
     const cHigh = new THREE.Color('#dc2626')
     const tmp = new THREE.Color()
-    for (let i = 0; i < heatmap.vertexIndices.length; i++) {
+    const colorFor = (dist: number, out: THREE.Color) => {
+      const d = Math.min(dist / max, 1)
+      if (d < 0.5) out.lerpColors(cLow, cMid, d * 2)
+      else out.lerpColors(cMid, cHigh, (d - 0.5) * 2)
+      return out
+    }
+
+    const sampled = heatmap.vertexIndices.length
+    const full = sampled === pos.count
+    // Assign sampled colors first.
+    for (let i = 0; i < sampled; i++) {
       const vi = heatmap.vertexIndices[i]
-      const d = Math.min(heatmap.distances[i] / max, 1)
-      if (d < 0.5) {
-        tmp.lerpColors(cLow, cMid, d * 2)
-      } else {
-        tmp.lerpColors(cMid, cHigh, (d - 0.5) * 2)
-      }
+      colorFor(heatmap.distances[i], tmp)
       colors[vi * 3] = tmp.r
       colors[vi * 3 + 1] = tmp.g
       colors[vi * 3 + 2] = tmp.b
+    }
+    if (!full) {
+      // Sparse sample (very large meshes): fill unsampled vertices from the
+      // nearest sampled vertex so they aren't black.
+      const sampledSet = new Uint8Array(pos.count)
+      for (let i = 0; i < sampled; i++) sampledSet[heatmap.vertexIndices[i]] = 1
+      const sv = new Float32Array(sampled * 3)
+      for (let i = 0; i < sampled; i++) {
+        const vi = heatmap.vertexIndices[i]
+        sv[i * 3] = pos.getX(vi)
+        sv[i * 3 + 1] = pos.getY(vi)
+        sv[i * 3 + 2] = pos.getZ(vi)
+      }
+      for (let vi = 0; vi < pos.count; vi++) {
+        if (sampledSet[vi]) continue
+        const x = pos.getX(vi)
+        const y = pos.getY(vi)
+        const z = pos.getZ(vi)
+        let best = 0
+        let bestD = Infinity
+        for (let i = 0; i < sampled; i++) {
+          const dx = sv[i * 3] - x
+          const dy = sv[i * 3 + 1] - y
+          const dz = sv[i * 3 + 2] - z
+          const d2 = dx * dx + dy * dy + dz * dz
+          if (d2 < bestD) {
+            bestD = d2
+            best = i
+          }
+        }
+        colorFor(heatmap.distances[best], tmp)
+        colors[vi * 3] = tmp.r
+        colors[vi * 3 + 1] = tmp.g
+        colors[vi * 3 + 2] = tmp.b
+      }
     }
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
     mat.vertexColors = true

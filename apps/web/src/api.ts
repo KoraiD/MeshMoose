@@ -214,7 +214,8 @@ export async function retryJob(id: string): Promise<Job> {
 }
 
 export type AlignResult = {
-  transform: number[]
+  /** 4×4 row-major matrix (nested rows) mapping generated → reference space. */
+  transform: number[][]
   vertex_indices: number[]
   distances: number[]
   stats: {
@@ -232,6 +233,27 @@ export async function alignJob(id: string): Promise<AlignResult> {
   const res = await fetch(`${BASE}/jobs/${id}/align`, {
     method: 'POST',
     headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(await errDetail(res))
+  return res.json()
+}
+
+export type ReferenceInfo = {
+  active: string
+  available: string[]
+}
+
+export async function getReference(id: string): Promise<ReferenceInfo> {
+  const res = await fetch(`${BASE}/jobs/${id}/reference`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(await errDetail(res))
+  return res.json()
+}
+
+export async function setReference(id: string, source: string): Promise<{ active: string }> {
+  const res = await fetch(`${BASE}/jobs/${id}/reference`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source }),
   })
   if (!res.ok) throw new Error(await errDetail(res))
   return res.json()
