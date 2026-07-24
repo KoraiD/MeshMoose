@@ -27,8 +27,9 @@ type Props = {
   compact?: boolean
   /** 4×4 row-major transform (nested rows) applied to the primary mesh (ICP alignment). */
   alignTransform?: number[][] | null
-  /** Per-vertex deviation (mm) + indices for heatmap coloring of the primary mesh. */
-  heatmap?: { vertexIndices: number[]; distances: number[] } | null
+  /** Per-vertex deviation (mm) for heatmap coloring of the primary mesh.
+   * When `vertexIndices` is omitted, distances are assumed sequential (0..N-1). */
+  heatmap?: { vertexIndices?: number[]; distances: number[] } | null
   /** Manual nudge applied to the primary mesh, on top of alignTransform. */
   nudge?: { translate: [number, number, number]; rotateDeg: [number, number, number]; scale: number } | null
 }
@@ -259,8 +260,12 @@ export function StlViewport({
       return
     }
 
-    const max = Math.max(...heatmap.distances, 1e-6)
     const pos = geometry.attributes.position
+    let max = 1e-6
+    for (let i = 0; i < heatmap.distances.length; i++) {
+      const d = heatmap.distances[i]
+      if (d > max) max = d
+    }
     const colors = new Float32Array(pos.count * 3)
     const cLow = new THREE.Color('#2563eb')
     const cMid = new THREE.Color('#facc15')
@@ -273,11 +278,14 @@ export function StlViewport({
       return out
     }
 
-    const sampled = heatmap.vertexIndices.length
+    // Omitted / empty indices ⇒ sequential 0..distances.length-1 (full-mesh payloads).
+    const indices = heatmap.vertexIndices
+    const sampled = indices?.length ?? heatmap.distances.length
+    const indexAt = (i: number) => (indices ? indices[i] : i)
     const full = sampled === pos.count
     // Assign sampled colors first.
     for (let i = 0; i < sampled; i++) {
-      const vi = heatmap.vertexIndices[i]
+      const vi = indexAt(i)
       colorFor(heatmap.distances[i], tmp)
       colors[vi * 3] = tmp.r
       colors[vi * 3 + 1] = tmp.g
@@ -287,10 +295,10 @@ export function StlViewport({
       // Sparse sample (very large meshes): fill unsampled vertices from the
       // nearest sampled vertex so they aren't black.
       const sampledSet = new Uint8Array(pos.count)
-      for (let i = 0; i < sampled; i++) sampledSet[heatmap.vertexIndices[i]] = 1
+      for (let i = 0; i < sampled; i++) sampledSet[indexAt(i)] = 1
       const sv = new Float32Array(sampled * 3)
       for (let i = 0; i < sampled; i++) {
-        const vi = heatmap.vertexIndices[i]
+        const vi = indexAt(i)
         sv[i * 3] = pos.getX(vi)
         sv[i * 3 + 1] = pos.getY(vi)
         sv[i * 3 + 2] = pos.getZ(vi)

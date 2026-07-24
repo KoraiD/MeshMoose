@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
-import { getApiToken, getZooUsage, type ZooUsage } from './api'
+import { getApiToken } from './api'
+import {
+  formatUsageUpdatedAt,
+  getZooUsageState,
+  refreshZooUsage,
+  subscribeZooUsage,
+} from './zooUsageStore'
 
 type Props = {
   /** Local session seconds (e.g. live engine connection). */
   sessionSeconds?: number | null
-  /** Job wall-clock seconds (created → now/updated). */
+  /** Job active seconds (running pipeline time only). */
   jobSeconds?: number | null
   refreshKey?: string | number | boolean
   compact?: boolean
@@ -24,40 +30,27 @@ export function UsageMeter({
   refreshKey,
   compact,
 }: Props) {
-  const [usage, setUsage] = useState<ZooUsage | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [usageState, setUsageState] = useState(() => getZooUsageState())
 
   useEffect(() => {
-    if (!getApiToken()) {
-      setUsage(null)
-      return
-    }
-    let cancelled = false
-    void getZooUsage()
-      .then((data) => {
-        if (!cancelled) {
-          setUsage(data)
-          setError(null)
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setUsage(null)
-          setError((err as Error).message)
-        }
-      })
-    return () => {
-      cancelled = true
+    return subscribeZooUsage(() => setUsageState(getZooUsageState()))
+  }, [])
+
+  useEffect(() => {
+    if (!getApiToken()) return
+    // Prefer in-memory cache; only fetch when empty (auto-refresh keeps it warm).
+    if (!getZooUsageState().usage) {
+      void refreshZooUsage()
     }
   }, [refreshKey])
 
-  const recent = usage?.recent_totals
+  const recent = usageState.usage?.recent_totals
 
   return (
     <div className={`usage-meter${compact ? ' compact' : ''}`}>
       <div className="usage-meter-grid">
         <div>
-          <span>Job elapsed</span>
+          <span>Active time</span>
           <strong>{fmtSeconds(jobSeconds)}</strong>
         </div>
         {sessionSeconds != null ? (
@@ -85,9 +78,12 @@ export function UsageMeter({
       </div>
       <p className="hint">
         Zoo meters most billable work by the second. Recent sample is from your account
-        (last ~dozen calls), not this job alone.
+        (last ~dozen calls), not this job alone. Updated{' '}
+        {formatUsageUpdatedAt(usageState.lastFetchedAt).toLowerCase()}.
       </p>
-      {error ? <p className="usage-meter-error">{error}</p> : null}
+      {usageState.error ? (
+        <p className="usage-meter-error">{usageState.error}</p>
+      ) : null}
     </div>
   )
 }

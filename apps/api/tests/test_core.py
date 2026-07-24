@@ -219,6 +219,39 @@ def test_auth_required(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert res.status_code == 401
 
 
+def test_active_ms_only_counts_running_segments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import meshmoose_api.jobs as jobs_mod
+    from meshmoose_api.jobs import JobStatus
+
+    clock = {"t": "2026-01-01T00:00:00+00:00"}
+
+    def fake_now() -> str:
+        return clock["t"]
+
+    monkeypatch.setattr(jobs_mod, "utc_now", fake_now)
+    store = JobStore(tmp_path / "jobs")
+    meta = store.create(prompt="x", mode="fast")
+    assert meta["active_ms"] == 0
+    assert meta["run_started_at"] == "2026-01-01T00:00:00+00:00"
+
+    clock["t"] = "2026-01-01T00:00:30+00:00"
+    done = store.set_status(meta["id"], JobStatus.SUCCEEDED)
+    assert done["run_started_at"] is None
+    assert done["active_ms"] == 30_000
+
+    clock["t"] = "2026-01-01T00:05:00+00:00"
+    running = store.set_status(meta["id"], JobStatus.AGENT_RUNNING)
+    assert running["run_started_at"] == "2026-01-01T00:05:00+00:00"
+    assert running["active_ms"] == 30_000
+
+    clock["t"] = "2026-01-01T00:05:20+00:00"
+    done2 = store.set_status(meta["id"], JobStatus.SUCCEEDED)
+    assert done2["run_started_at"] is None
+    assert done2["active_ms"] == 50_000
+
+
 def test_retry_failed_job(tmp_path: Path):
     store = JobStore(tmp_path / "jobs")
     meta = store.create(prompt="Make a coin", mode="fast", title="Coin")
@@ -531,7 +564,8 @@ def test_align_meshes_recovers_translation(tmp_path: Path):
 
     result = align_meshes(reference_stl=tmp_path / "ref.stl", generated_stl=tmp_path / "gen.stl")
     assert len(result["transform"]) == 4
-    assert len(result["distances"]) == len(result["vertex_indices"])
+    assert "vertex_indices" not in result  # contiguous → omitted; client assumes 0..N-1
+    assert len(result["distances"]) == result["stats"]["samples"]
     assert result["stats"]["mean"] is not None
     # A translated identical box should align to ~zero deviation.
     assert result["stats"]["mean"] < 0.01
@@ -896,3 +930,99 @@ def test_export_kcl_restores_prior_env_value(tmp_path: Path, monkeypatch: pytest
     )
 
     assert os.environ.get("ZOO_API_TOKEN") == "user-shell-token"
+
+
+def test_format_job_error_strips_kcl_ansi_tuple():
+    from meshmoose_api.errors import format_job_error
+
+    # Shape matches json.loads of Zoo KclError str() stored in meta.json
+    # (literal \x1b escapes, not raw ESC bytes).
+    raw = (
+        r"('\x1b[31mKCL EngineHangup error\x1b[0m\n\n  "
+        r"\x1b[31m×\x1b[0m engine hangup: modeling connection interrupted; "
+        r"please reconnect and retry\n', True)"
+    )
+    out = format_job_error(raw)
+    assert "hangup" in out.lower()
+    assert "interrupted" in out.lower()
+    assert "\x1b" not in out
+    assert r"\x1b" not in out
+    assert "True)" not in out
+
+
+def test_format_job_error_from_exception_args():
+    from meshmoose_api.errors import format_job_error
+
+    class KclError(Exception):
+        pass
+
+    exc = KclError(
+        (
+            "\x1b[31mKCL EngineHangup error\x1b[0m\n\n"
+            "  \x1b[31m×\x1b[0m engine hangup: modeling connection interrupted; "
+            "please reconnect and retry\n",
+            True,
+        )
+    )
+    out = format_job_error(exc)
+    assert "modeling connection interrupted" in out.lower()
+    assert "\x1b" not in out
+
+
+def test_export_kcl_retries_retryable_engine_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Engine hangups (KclError.is_retryable) should be retried, not fail the job."""
+    import sys
+    import types
+    from meshmoose_api.logging_util import JobLogger
+
+    class _File:
+        def __init__(self, contents: bytes):
+            self.contents = contents
+
+    class _Format:
+        Stl = "stl"
+        Step = "step"
+
+    class _Retryable(Exception):
+        def is_retryable(self) -> bool:
+            return True
+
+    calls = {"n": 0}
+
+    async def _flaky_execute(_code, _fmt):
+        calls["n"] += 1
+        # Fail first STL attempt, then succeed; STEP succeeds immediately.
+        if calls["n"] == 1:
+            raise _Retryable("engine hangup")
+        return [_File(b"solid x\nendsolid x\n")]
+
+    fake_kcl = types.ModuleType("kcl")
+    fake_kcl.FileExportFormat = _Format
+    fake_kcl.execute_code_and_export = _flaky_execute
+    monkeypatch.setitem(sys.modules, "kcl", fake_kcl)
+    monkeypatch.setattr(
+        "meshmoose_api.export_kcl.stl_to_3mf",
+        lambda stl, out, log=None: out.write_bytes(b"3mf"),
+    )
+
+    from meshmoose_api.export_kcl import export_kcl
+
+    job_dir = tmp_path / "job"
+    (job_dir / "outputs").mkdir(parents=True)
+    out_stl = tmp_path / "g.stl"
+    out_step = tmp_path / "g.step"
+    export_kcl(
+        token="tok",
+        main_kcl="x = 1",
+        out_stl=out_stl,
+        out_step=out_step,
+        log=JobLogger(job_dir),
+    )
+
+    assert out_stl.is_file()
+    assert out_step.is_file()
+    # 1 failed STL + 1 ok STL + 1 ok STEP
+    assert calls["n"] == 3
+

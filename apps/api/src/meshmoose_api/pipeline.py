@@ -4,6 +4,7 @@ import traceback
 from pathlib import Path
 
 from meshmoose_api.agent import run_copilot_reconstruct, run_copilot_refine
+from meshmoose_api.errors import format_job_error
 from meshmoose_api.export_kcl import export_kcl
 from meshmoose_api.finishes import apply_finish_to_kcl, get_finish_preset
 from meshmoose_api.jobs import JobStatus, JobStore
@@ -111,9 +112,10 @@ def run_job(store: JobStore, job_id: str, token: str) -> None:
             log.emit(f"Job stopped after cancel: {exc}", level="warn", kind="error")
             return
         tb = traceback.format_exc()
-        log.emit(str(exc), level="error", kind="error")
+        nice = format_job_error(exc)
+        log.emit(nice, level="error", kind="error")
         log.emit(tb, level="error", kind="error", level_detail="traceback")
-        store.set_status(job_id, JobStatus.FAILED, error=str(exc))
+        store.set_status(job_id, JobStatus.FAILED, error=nice)
 
 
 def apply_finish_job(store: JobStore, job_id: str, token: str, preset_id: str) -> None:
@@ -182,8 +184,9 @@ def apply_finish_job(store: JobStore, job_id: str, token: str, preset_id: str) -
         if store.is_cancelled(job_id):
             log.emit(f"Finish stopped after cancel: {exc}", level="warn", kind="error")
             return
-        log.emit(str(exc), level="error", kind="error")
-        store.set_status(job_id, JobStatus.FAILED, error=str(exc))
+        nice = format_job_error(exc)
+        log.emit(nice, level="error", kind="error")
+        store.set_status(job_id, JobStatus.FAILED, error=nice)
 
 
 def refine_job(
@@ -288,5 +291,6 @@ def refine_job(
         if store.is_cancelled(job_id):
             log.emit(f"Refine stopped after cancel: {exc}", level="warn", kind="error")
             return
-        log.emit(str(exc), level="error", kind="error")
-        store.set_status(job_id, JobStatus.FAILED, error=str(exc))
+        nice = format_job_error(exc)
+        log.emit(nice, level="error", kind="error")
+        store.set_status(job_id, JobStatus.FAILED, error=nice)

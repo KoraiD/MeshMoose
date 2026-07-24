@@ -85,9 +85,11 @@ def align_meshes(
         "icp_cost": float(cost),
     }
 
+    # Distances are per generated vertex in order (0..N-1). Omit vertex_indices
+    # when contiguous so clients assume sequential indices and we avoid a large
+    # redundant integer payload.
     return {
         "transform": np.asarray(matrix, dtype=float).tolist(),
-        "vertex_indices": list(range(len(query_pts))),
         "distances": safe.tolist(),
         "stats": stats,
         "units": "mm",

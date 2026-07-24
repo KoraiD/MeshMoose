@@ -21,7 +21,7 @@ Photos alone under-specify geometry. Quick meshes alone are frozen triangles. Me
 | **Agent** (ML Copilot / Zookeeper) | Photo + mesh + prompt → editable `main.kcl`; refine continues the conversation |
 | **Engine** (`zoo-kcl` + `@kittycad/web-view`) | Execute KCL → export STL/STEP; optional live WebRTC preview |
 | **File Format** | Volume / surface area / mass / center-of-mass (reference vs generated) |
-| **Account** | Credits and recent billable calls in Settings / `meshmoose usage` |
+| **Account** | Credits and recent billable calls in the **API key** menu / `meshmoose usage` |
 
 ## Quick start
 
@@ -43,7 +43,7 @@ npm run dev                        # API :8787 + web :5173
 
 On **Windows**, `npm run dev:api` / `npm run test:api` invoke `sh -c` — use Git Bash, WSL, or run `uvicorn` / `pytest` directly from an activated venv.
 
-- **UI:** http://127.0.0.1:5173 → Settings → paste token → New job (or open **Docs** in the app)
+- **UI:** http://127.0.0.1:5173 → **API key** → paste token → New job (or open **Docs** in the app)
 - **API docs:** http://127.0.0.1:8787/docs  
 - **CLI:** `meshmoose health` · `meshmoose demos list` · `meshmoose --help`
 - **Repo:** https://github.com/KoraiD/MeshMoose
@@ -57,17 +57,21 @@ npm run dev
 
 ## Features
 
-- Local-first jobs: history, live SSE logs, cancel, delete, **retry** failed runs
-- Job **rename** and up to **5 tags**; sidebar filter by name, ID, tag, state, time
-- **Settings**: API token, theme (light / dark / system), Zoo usage, app log, **prompt templates**
-- New-job modal: title, templates, agent mode (`thoughtful` / `fast` / `auto`), multi photo + mesh, local STL preview, packaged demos
+- Local-first jobs: history, live SSE logs (with reconnect), cancel, delete, **retry** failed runs
+- Job status stays fresh while the app is open (SSE + short poll while jobs are running)
+- Job **rename** and up to **5 tags** from a shared tag library (Settings + job detail); sidebar / Jobs modal filter by name, ID, tag, state, time
+- **API key** menu: Zoo token, usage credits / recent calls, optional **10‑minute auto-refresh** of usage while the app is open
+- **Settings**: theme (light / dark / system), job finish notifications, tag library, custom refine snippets (text + optional photo/mesh attachments), prompt templates, app log
+- Browser **notifications** when a job succeeds or fails (opt-in; useful for parallel runs)
+- New-job modal: title, templates, agent mode (`thoughtful` / `fast` / `auto` / `zookeeper_pro`), multi photo + mesh, local STL preview, packaged demos
 - **Photos:** JPG / PNG / WebP / GIF / HEIC / HEIF (HEIC→JPEG, GIF→PNG for Zoo)
 - **Meshes:** STL / PLY / OBJ / 3MF / XYZ (normalized to STL for the Agent; XYZ → convex hull)
-- Compare: side-by-side or **before/after opacity overlay**; download STL / STEP / **3MF**
-- Workbench: photos, filtered logs, assistant markdown, KCL + metrics (volume mm³ / cm³ / in³)
-- Live Engine: WebRTC preview — zoom / pan / rotate / scale, camera views, edges / x-ray / explode, snaps, selection, multi-format export
-- Refine with text and optional re-attached photos/meshes
+- Compare: side-by-side or **before/after opacity overlay**; selectable reference mesh; **Align + deviation heatmap**; download STL / STEP / **3MF**
+- Workbench: photos, filtered logs, assistant markdown, KCL (current / diff vs initial), metrics (volume mm³ / cm³ / in³), **active time** (pipeline run time only)
+- Live Engine: WebRTC preview — zoom / pan / rotate / scale, camera views, edges / x-ray / explode, snaps, selection, multi-format export; open sessions listed in the Jobs modal
+- Refine with text, optional re-attached photos/meshes, or a saved refine snippet
 - **Apply finish** PBR presets (KCL `appearance`) without an Agent call
+- Engine export **retries** transient Zoo `EngineHangup` errors; job errors are sanitized for the UI
 - Offline **`meshmoose mesh corrupt`** to simulate incomplete scans for demos/tests
 - In-app **Documentation** + HTTP API + CLI
 
@@ -76,7 +80,7 @@ npm run dev
 ```
 apps/api     FastAPI + Python client + meshmoose CLI
 apps/web     React + Vite UI
-demos/       Packaged fixtures (beverage-holder-stand, partial-stand, …)
+demos/       Packaged fixtures (beverage-holder-stand, partial-stand, brick-wall, …)
 docs/        Architecture, HTTP API, CLI, Zoo notes
 scripts/     Smoke / validation helpers
 ```
@@ -88,6 +92,7 @@ export ZOO_API_TOKEN=…             # or MESHMOOSE_TOKEN / .env.local
 
 meshmoose health
 meshmoose demos run beverage-holder-stand --mode fast --wait
+meshmoose demos run brick-wall --mode fast --wait
 meshmoose jobs create --prompt "Make a stand" --photo stand.jpg --mesh stand.stl \
   --title "Beverage stand" --tag stand --wait
 meshmoose jobs finish <job_id> --preset brushed-aluminum --wait

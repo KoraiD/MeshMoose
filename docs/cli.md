@@ -56,7 +56,7 @@ Every subcommand supports `--help` with examples.
 
 `jobs logs` prints the tail of a job's human-readable `outputs/job.log`.
 
-`usage --watch` polls credits / recent-call totals every `--interval` seconds until interrupted — handy while a long `thoughtful` run burns minutes.
+`usage --watch` polls credits / recent-call totals every `--interval` seconds until interrupted — handy while a long `thoughtful` run burns minutes. In the web UI, the same data lives under **API key** (with optional 10‑minute auto-refresh).
 
 `completion` prints a shell completion script. Enable it with:
 

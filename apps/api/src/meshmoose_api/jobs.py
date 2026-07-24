@@ -6,11 +6,13 @@ import shutil
 import threading
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from meshmoose_api.config import data_dir
+from meshmoose_api.errors import format_job_error
 from meshmoose_api.logging_util import JobLogger, utc_now
 from meshmoose_api.photos import normalize_photo_upload
 
@@ -26,6 +28,23 @@ class JobStatus(str, Enum):
 
 
 AGENT_MODES = ("fast", "thoughtful", "auto", "zookeeper_pro")
+
+
+def _parse_utc(iso: str | None) -> datetime | None:
+    if not iso or not isinstance(iso, str):
+        return None
+    try:
+        return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _delta_ms(start_iso: str | None, end_iso: str) -> int:
+    start = _parse_utc(start_iso)
+    end = _parse_utc(end_iso)
+    if start is None or end is None:
+        return 0
+    return max(0, int((end - start).total_seconds() * 1000))
 
 
 @dataclass
@@ -129,6 +148,9 @@ class JobStore:
             "status": JobStatus.QUEUED.value,
             "created_at": now,
             "updated_at": now,
+            # Cumulative wall time spent in running statuses (excludes idle between refine runs).
+            "active_ms": 0,
+            "run_started_at": now,
             "conversation_id": None,
             "error": None,
             "input_photos": [],
@@ -292,17 +314,50 @@ class JobStore:
         return meta
 
     def set_status(self, job_id: str, status: JobStatus, error: str | None = None) -> dict[str, Any]:
-        fields: dict[str, Any] = {"status": status.value}
+        meta = self.get(job_id)
+        prev = str(meta.get("status") or "")
+        now = utc_now()
+        active_ms = int(meta.get("active_ms") or 0)
+        run_started = meta.get("run_started_at")
+        prev_running = prev in self.RUNNING_STATUSES
+        next_running = status.value in self.RUNNING_STATUSES
+
+        fields: dict[str, Any] = {
+            "status": status.value,
+            "active_ms": active_ms,
+            "run_started_at": run_started,
+        }
+        if prev_running and not next_running:
+            active_ms += _delta_ms(
+                run_started if isinstance(run_started, str) else None, now
+            )
+            fields["active_ms"] = active_ms
+            fields["run_started_at"] = None
+        elif not prev_running and next_running:
+            fields["run_started_at"] = now
+        elif next_running and not run_started:
+            # Resume tracking for older jobs that lack run_started_at.
+            fields["run_started_at"] = now
+
         if error is not None:
-            fields["error"] = error
+            fields["error"] = format_job_error(error) if error else error
         meta = self.update_meta(job_id, **fields)
         self.logger(job_id).emit(
             f"Status → {status.value}",
             level="error" if status == JobStatus.FAILED else "info",
             kind="status",
             status=status.value,
-            error=error,
+            error=fields.get("error", error),
         )
+        return meta
+
+    @staticmethod
+    def _sanitize_meta_error(meta: dict[str, Any]) -> dict[str, Any]:
+        err = meta.get("error")
+        if isinstance(err, str) and err:
+            cleaned = format_job_error(err)
+            if cleaned != err:
+                meta["error"] = cleaned
         return meta
 
     def get(self, job_id: str, *, hydrate: bool = False) -> dict[str, Any]:
@@ -311,8 +366,8 @@ class JobStore:
             raise KeyError(job_id)
         meta = json.loads(path.read_text(encoding="utf-8"))
         if hydrate:
-            return self.ensure_prompt_history(job_id)
-        return meta
+            meta = self.ensure_prompt_history(job_id)
+        return self._sanitize_meta_error(meta)
 
     def list_jobs(self, *, hydrate: bool = True) -> list[dict[str, Any]]:
         jobs: list[dict[str, Any]] = []
@@ -322,7 +377,7 @@ class JobStore:
                     meta = json.loads((child / "meta.json").read_text(encoding="utf-8"))
                     if hydrate and meta.get("id"):
                         meta = self.ensure_prompt_history(meta["id"])
-                    jobs.append(meta)
+                    jobs.append(self._sanitize_meta_error(meta))
                 except json.JSONDecodeError:
                     continue
         return jobs

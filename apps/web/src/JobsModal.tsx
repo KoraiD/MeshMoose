@@ -1,7 +1,13 @@
+import { useMemo, useState } from 'react'
 import type { Job } from './api'
 import type { EngineSession } from './engineSessions'
-
-const RUNNING = new Set(['queued', 'preprocessing', 'agent_running', 'exporting', 'measuring'])
+import {
+  filterJobs,
+  JOB_STATUS_OPTIONS,
+  statusClass,
+  type JobTimeFilter,
+} from './jobFilters'
+import { isJobRunning } from './jobTiming'
 
 type Props = {
   open: boolean
@@ -35,8 +41,30 @@ export function JobsModal({
   onCancelJob,
   onStopEngine,
 }: Props) {
+  const [jobQuery, setJobQuery] = useState('')
+  const [jobStatusFilter, setJobStatusFilter] = useState<string>('all')
+  const [jobTimeFilter, setJobTimeFilter] = useState<JobTimeFilter>('all')
+
+  const filteredJobs = useMemo(
+    () =>
+      filterJobs(jobs, {
+        query: jobQuery,
+        status: jobStatusFilter,
+        time: jobTimeFilter,
+      }),
+    [jobs, jobQuery, jobStatusFilter, jobTimeFilter],
+  )
+
+  const running = useMemo(
+    () => filteredJobs.filter((j) => isJobRunning(j.status)),
+    [filteredJobs],
+  )
+
+  const filtersActive =
+    Boolean(jobQuery.trim()) || jobStatusFilter !== 'all' || jobTimeFilter !== 'all'
+
   if (!open) return null
-  const running = jobs.filter((j) => RUNNING.has(j.status))
+
   return (
     <div
       className="modal-backdrop"
@@ -45,7 +73,12 @@ export function JobsModal({
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="modal jobs-modal" role="dialog" aria-modal="true" aria-labelledby="jobs-modal-title">
+      <div
+        className="modal jobs-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="jobs-modal-title"
+      >
         <div className="modal-head">
           <h2 id="jobs-modal-title">All jobs</h2>
           <div className="modal-head-actions">
@@ -56,6 +89,62 @@ export function JobsModal({
               Close
             </button>
           </div>
+        </div>
+
+        <div className="jobs-filters jobs-modal-filters">
+          <label className="jobs-filter-search">
+            <span className="sr-only">Filter jobs</span>
+            <input
+              type="search"
+              value={jobQuery}
+              onChange={(e) => setJobQuery(e.target.value)}
+              placeholder="Name, ID, tag…"
+            />
+          </label>
+          <div className="jobs-filter-row">
+            <label>
+              <span className="sr-only">Status</span>
+              <select
+                value={jobStatusFilter}
+                onChange={(e) => setJobStatusFilter(e.target.value)}
+              >
+                <option value="all">All states</option>
+                {JOB_STATUS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="sr-only">Time</span>
+              <select
+                value={jobTimeFilter}
+                onChange={(e) => setJobTimeFilter(e.target.value as JobTimeFilter)}
+              >
+                <option value="all">Any time</option>
+                <option value="today">Today</option>
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+              </select>
+            </label>
+          </div>
+          {filtersActive ? (
+            <p className="jobs-filter-meta muted">
+              {filteredJobs.length} of {jobs.length}
+              <button
+                type="button"
+                className="linkish"
+                onClick={() => {
+                  setJobQuery('')
+                  setJobStatusFilter('all')
+                  setJobTimeFilter('all')
+                }}
+              >
+                Clear
+              </button>
+            </p>
+          ) : null}
         </div>
 
         {running.length ? (
@@ -69,7 +158,7 @@ export function JobsModal({
                     className="jobs-modal-main"
                     onClick={() => onSelectJob(j.id)}
                   >
-                    <span className={`pill ${j.status}`}>{j.status}</span>
+                    <span className={`pill ${statusClass(j.status)}`}>{j.status}</span>
                     <span className="jobs-modal-title">{j.title}</span>
                     <span className="muted jobs-modal-meta">
                       {j.mode} · started {new Date(j.created_at).toLocaleTimeString()}
@@ -118,18 +207,27 @@ export function JobsModal({
         ) : null}
 
         <section className="jobs-modal-section">
-          <h3>All jobs ({jobs.length})</h3>
-          {jobs.length ? (
+          <h3>All jobs ({filteredJobs.length})</h3>
+          {filteredJobs.length ? (
             <ul className="jobs-modal-list">
-              {jobs.map((j) => (
+              {filteredJobs.map((j) => (
                 <li key={j.id} className="jobs-modal-row">
                   <button
                     type="button"
                     className="jobs-modal-main"
                     onClick={() => onSelectJob(j.id)}
                   >
-                    <span className={`pill ${j.status}`}>{j.status}</span>
+                    <span className={`pill ${statusClass(j.status)}`}>{j.status}</span>
                     <span className="jobs-modal-title">{j.title}</span>
+                    {j.tags?.length ? (
+                      <span className="job-tags-inline">
+                        {j.tags.map((t) => (
+                          <span key={t} className="tag-chip tiny">
+                            {t}
+                          </span>
+                        ))}
+                      </span>
+                    ) : null}
                     <span className="muted jobs-modal-meta">
                       {new Date(j.created_at).toLocaleString()}
                     </span>
@@ -156,7 +254,9 @@ export function JobsModal({
               ))}
             </ul>
           ) : (
-            <p className="muted empty">No jobs yet</p>
+            <p className="muted empty">
+              {!jobs.length ? 'No jobs yet' : 'No jobs match this filter'}
+            </p>
           )}
         </section>
       </div>

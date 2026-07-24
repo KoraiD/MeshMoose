@@ -17,7 +17,10 @@ Or `npm run dev:api` from the repo root.
 
 ## Surface
 
-- Jobs: create, patch (title/tags), retry, refine, finish, cancel, delete, SSE events, artifacts
+- Jobs: create, patch (title/tags), retry, refine, finish, cancel, delete, SSE events (`?after=`), artifacts
+- Compare helpers: reference select, ICP align + deviation
+- Timing: `active_ms` / `run_started_at` on job meta
+- Export: retries retryable Zoo Engine hangups; sanitized job errors
 - Demos: `GET /demos`, `POST /jobs/from-demo/{id}`
 - Finishes: `GET /finishes`, `POST /jobs/{id}/finish`
 - Photo normalize (HEIC/GIF/…), mesh preprocess (STL/PLY/OBJ/3MF/XYZ), 3MF export

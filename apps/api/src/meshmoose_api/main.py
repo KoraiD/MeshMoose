@@ -214,17 +214,23 @@ def cancel_job(job_id: str, _: str = Depends(require_token)) -> dict:
 
 
 @app.get("/jobs/{job_id}/events", tags=["jobs"])
-async def job_events(job_id: str, _: str = Depends(require_token)) -> StreamingResponse:
+async def job_events(
+    job_id: str,
+    after: int = 0,
+    _: str = Depends(require_token),
+) -> StreamingResponse:
     try:
         store.get(job_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Job not found") from exc
 
+    start = max(0, after)
+
     async def gen():
         log = store.logger(job_id)
-        seen = 0
-        # Initial backlog
-        events = log.read_events(0)
+        seen = start
+        # Backlog from cursor (0 = full history; reconnects pass the last seen index).
+        events = log.read_events(seen)
         for ev in events:
             seen += 1
             yield f"data: {json.dumps(ev)}\n\n"
