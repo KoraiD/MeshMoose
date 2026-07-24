@@ -466,6 +466,59 @@ def test_refine_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert res.status_code == 400
 
 
+def test_create_job_rejects_oversized_upload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
+    from fastapi.testclient import TestClient
+
+    import meshmoose_api.main as main_mod
+    from meshmoose_api.jobs import JobStore as LiveStore
+
+    main_mod.store = LiveStore(tmp_path / "jobs")
+    client = TestClient(main_mod.app)
+    headers = {"Authorization": "Bearer test-token"}
+
+    oversized = b"\xff\xd8\xff" + b"\x00" * (main_mod.MAX_UPLOAD_BYTES + 1)
+    res = client.post(
+        "/jobs",
+        headers=headers,
+        data={"prompt": "make a stand"},
+        files=[
+            ("photos", ("big.jpg", oversized, "image/jpeg")),
+            ("meshes", ("part.stl", b"solid x\nendsolid x\n", "model/stl")),
+        ],
+    )
+    assert res.status_code == 413
+    assert "limit" in res.json()["detail"]
+
+
+def test_refine_rejects_oversized_upload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
+    from fastapi.testclient import TestClient
+
+    import meshmoose_api.main as main_mod
+    from meshmoose_api.jobs import JobStore as LiveStore
+
+    main_mod.store = LiveStore(tmp_path / "jobs")
+    client = TestClient(main_mod.app)
+    headers = {"Authorization": "Bearer test-token"}
+
+    meta = main_mod.store.create(prompt="bracket", mode="fast")
+    job_id = meta["id"]
+    main_mod.store.paths(job_id).outputs.joinpath("main.kcl").write_text(
+        "x = 1\n", encoding="utf-8"
+    )
+    main_mod.store.update_meta(job_id, status="succeeded")
+
+    oversized = b"\xff\xd8\xff" + b"\x00" * (main_mod.MAX_UPLOAD_BYTES + 1)
+    res = client.post(
+        f"/jobs/{job_id}/refine",
+        headers=headers,
+        data={"message": "thicken the rim"},
+        files=[("photos", ("big.jpg", oversized, "image/jpeg"))],
+    )
+    assert res.status_code == 413
+
+
 def test_zoo_usage_requires_auth(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
     from fastapi.testclient import TestClient
@@ -621,3 +674,99 @@ def test_compare_meshes_via_sdk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert result["generated"]["mass"]["mass"] == 2.0
     assert result["delta"]["volume"]["abs"] == 0.0
     assert out.is_file()
+
+
+def test_export_kcl_restores_token_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Token env vars must not linger (or clobber prior values) after export."""
+    import os
+    import sys
+    import types
+    from meshmoose_api.logging_util import JobLogger
+
+    monkeypatch.delenv("ZOO_API_TOKEN", raising=False)
+    monkeypatch.delenv("KITTYCAD_API_TOKEN", raising=False)
+
+    seen_env: dict[str, str | None] = {}
+
+    class _File:
+        def __init__(self, contents: bytes):
+            self.contents = contents
+
+    class _Format:
+        Stl = "stl"
+        Step = "step"
+
+    async def _fake_execute(_code, _fmt):
+        seen_env["ZOO_API_TOKEN"] = os.environ.get("ZOO_API_TOKEN")
+        seen_env["KITTYCAD_API_TOKEN"] = os.environ.get("KITTYCAD_API_TOKEN")
+        return [_File(b"solid x\nendsolid x\n")]
+
+    fake_kcl = types.ModuleType("kcl")
+    fake_kcl.FileExportFormat = _Format
+    fake_kcl.execute_code_and_export = _fake_execute
+    monkeypatch.setitem(sys.modules, "kcl", fake_kcl)
+
+    monkeypatch.setattr(
+        "meshmoose_api.export_kcl.stl_to_3mf",
+        lambda stl, out, log=None: out.write_bytes(b"3mf"),
+    )
+
+    from meshmoose_api.export_kcl import export_kcl
+
+    job_dir = tmp_path / "job"
+    (job_dir / "outputs").mkdir(parents=True)
+    export_kcl(
+        token="secret-token-123",
+        main_kcl="x = 1",
+        out_stl=tmp_path / "g.stl",
+        out_step=tmp_path / "g.step",
+        log=JobLogger(job_dir),
+    )
+
+    assert seen_env["ZOO_API_TOKEN"] == "secret-token-123"
+    assert os.environ.get("ZOO_API_TOKEN") is None
+    assert os.environ.get("KITTYCAD_API_TOKEN") is None
+
+
+def test_export_kcl_restores_prior_env_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A pre-existing env value must survive a job export unchanged."""
+    import os
+    import sys
+    import types
+    from meshmoose_api.logging_util import JobLogger
+
+    monkeypatch.setenv("ZOO_API_TOKEN", "user-shell-token")
+
+    class _File:
+        def __init__(self, contents: bytes):
+            self.contents = contents
+
+    class _Format:
+        Stl = "stl"
+        Step = "step"
+
+    async def _fake_execute(_code, _fmt):
+        return [_File(b"solid x\nendsolid x\n")]
+
+    fake_kcl = types.ModuleType("kcl")
+    fake_kcl.FileExportFormat = _Format
+    fake_kcl.execute_code_and_export = _fake_execute
+    monkeypatch.setitem(sys.modules, "kcl", fake_kcl)
+    monkeypatch.setattr(
+        "meshmoose_api.export_kcl.stl_to_3mf",
+        lambda stl, out, log=None: out.write_bytes(b"3mf"),
+    )
+
+    from meshmoose_api.export_kcl import export_kcl
+
+    job_dir = tmp_path / "job"
+    (job_dir / "outputs").mkdir(parents=True)
+    export_kcl(
+        token="job-token",
+        main_kcl="x = 1",
+        out_stl=tmp_path / "g.stl",
+        out_step=tmp_path / "g.step",
+        log=JobLogger(job_dir),
+    )
+
+    assert os.environ.get("ZOO_API_TOKEN") == "user-shell-token"

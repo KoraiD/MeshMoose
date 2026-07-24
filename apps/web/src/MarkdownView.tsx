@@ -1,16 +1,8 @@
+import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { useMemo } from 'react'
 
 marked.setOptions({ gfm: true, breaks: true })
-
-function sanitizeHtml(html: string): string {
-  // Minimal allowlist for assistant markdown (no scripts/iframes).
-  return html
-    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
-    .replace(/\son\w+="[^"]*"/gi, '')
-    .replace(/\son\w+='[^']*'/gi, '')
-    .replace(/javascript:/gi, '')
-}
 
 type Props = {
   text: string
@@ -20,7 +12,9 @@ type Props = {
 export function MarkdownView({ text, empty = '(streaming…)' }: Props) {
   const html = useMemo(() => {
     if (!text.trim()) return ''
-    return sanitizeHtml(marked.parse(text, { async: false }) as string)
+    // Assistant text is agent-controlled; sanitize before injecting HTML.
+    const raw = marked.parse(text, { async: false }) as string
+    return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } })
   }, [text])
 
   if (!html) {
