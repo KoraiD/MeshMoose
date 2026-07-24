@@ -27,13 +27,17 @@ flowchart TB
 - **Apply finish** rewrites KCL `appearance(...)` for a preset and re-enters at `exporting` (no Agent call).
 - **Retry** clones a failed job’s prompt, title, tags, and input files into a new `queued` job (`retry_of` / `retried_as`).
 
-Each step appends structured events to `events.jsonl` and a human `outputs/job.log`, streamed to the UI Logs panel. SSE stays open for the connection lifetime so refine / finish after success still update the Workbench.
+Each step appends structured events to `events.jsonl` and a human `outputs/job.log`, streamed to the UI Logs panel. SSE stays open for the connection lifetime so refine / finish after success still update the Workbench. Clients may reconnect with `GET /jobs/{id}/events?after=N` to resume without replaying the full backlog. The web UI also **polls the jobs list** every few seconds while any job is running, so status, artifacts, and browser notifications still update if SSE drops (for example after an API reload).
+
+`meta.active_ms` / `run_started_at` track **pipeline active time** (only periods in running statuses), which the UI shows as “Active time”.
+
+Engine export (`zoo-kcl` `execute_code_and_export`) **retries** transient errors where `KclError.is_retryable()` is true (typical `EngineHangup` / connection interrupt). Failures stored on the job are passed through `format_job_error` so ANSI / tuple reprs from Zoo are readable in the UI.
 
 On API process start, any job still marked in-flight is **reaped** as failed (daemon workers do not survive restart). Users can also **Cancel run** from the UI.
 
 ## Auth
 
-The browser stores `meshmoose.zooApiToken` in **localStorage**. The API never persists the token; it only forwards `Authorization: Bearer` to Zoo for Agent / Engine / File / Account calls.
+The browser stores `meshmoose.zooApiToken` in **localStorage** (edited from the **API key** button). The API never persists the token; it only forwards `Authorization: Bearer` to Zoo for Agent / Engine / File / Account calls.
 
 Authenticated job files (`/jobs/{id}/files/...`) require the same Bearer header. The mesh viewer fetches STLs with that header and builds blob URLs for Three.js.
 
@@ -41,18 +45,21 @@ Authenticated job files (`/jobs/{id}/files/...`) require the same Bearer header.
 
 | Surface | Purpose |
 |---------|---------|
-| Jobs list | Select, filter (name/ID/tag/state/time), retry failed, delete; **New job**; **Docs**; **Settings** |
-| Settings | Token, theme, Zoo API usage, prompt templates (built-in + custom), app log |
+| Jobs list / Jobs modal | Select, filter (name/ID/tag/state/time), retry failed, delete; live Engine sessions; **New job**; **Docs**; **Settings** |
+| API key menu | Token, Zoo usage (credits + recent calls), optional 10‑minute usage auto-refresh |
+| Settings | Theme, job finish notifications, tag library, custom refine snippets, prompt templates, app log |
 | New job modal | Title, prompt templates, mode, photos, meshes, local STL preview, demos |
-| Job detail | Rename / tags; Compare / Live engine / Workbench; prompt history; refine; Apply finish |
+| Job detail | Rename / tags; Compare / Live engine / Workbench; prompt history; refine (+ snippets); Apply finish |
 | Docs page | User guide, API/CLI summary |
+
+Browser-only libraries (localStorage / IndexedDB): tag vocabulary, refine snippets with attachments, usage auto-refresh preference, notification preference, theme.
 
 ## Storage
 
 Per-job directory under `data/jobs/<id>/` (gitignored):
 
 ```
-meta.json          title, tags[], prompts[], status, …
+meta.json          title, tags[], prompts[], status, active_ms, run_started_at, …
 events.jsonl
 inputs/            photos + meshes
 outputs/           reference.stl, main.kcl, generated.stl/.step/.3mf, metrics.json, job.log, agent_*.jpeg
@@ -73,6 +80,7 @@ Bundled today:
 |----|--------|
 | `beverage-holder-stand` | Full mesh + photos of a multi-part print |
 | `partial-stand` | Same part with a corrupted “scan” mesh (`meshmoose mesh corrupt`) |
+| `brick-wall` | Compact running-bond brick segment (mesh + photo); also used as a refine texture package |
 
 ## Preprocess
 
@@ -85,9 +93,15 @@ Bundled today:
 | PLY / OBJ / 3MF | trimesh load → STL (3MF is not Zoo-native) |
 | XYZ / TXT | Convex hull → STL |
 
+## Compare alignment
+
+`POST /jobs/{id}/align` ICP-aligns `generated.stl` onto the active reference mesh and returns a transform plus per-vertex distances for the optional heatmap overlay. `GET` / `PUT /jobs/{id}/reference` select which input (or `outputs/reference.stl`) is the Compare reference.
+
 ## Refine
 
 Reopen ML Copilot with `conversation_id` when known, send refine text + `current_files["main.kcl"]`. Optionally multipart-upload new photos/meshes; meshes are preprocessed to STL, attached as `additional_files`, and can refresh `reference.stl`. Then re-export and re-measure.
+
+The UI can attach a **custom refine snippet** (text + optional stored photos/meshes from IndexedDB) into the refine form.
 
 ## Apply finish
 
@@ -95,4 +109,4 @@ Reopen ML Copilot with `conversation_id` when known, send refine text + `current
 
 ## Live Engine preview
 
-The web UI mounts `@kittycad/web-view` (`ZooWebView`) against the user’s Bearer token to WebRTC-stream the Zoo Engine executing `main.kcl`. After `ready`, MeshMoose sends modeling commands for zoom / pan / rotate / scale, camera presets, edge visibility, x-ray, explode, `export3d`, PNG snapshots, click selection, and touch gestures. Mesh compare (Three.js) remains the default offline view; live engine is opt-in (uses API minutes). WASM is copied to `apps/web/public/` via `npm postinstall` (`scripts/copy-wasm.mjs`).
+The web UI mounts `@kittycad/web-view` (`ZooWebView`) against the user’s Bearer token to WebRTC-stream the Zoo Engine executing `main.kcl`. After `ready`, MeshMoose sends modeling commands for zoom / pan / rotate / scale, camera presets, edge visibility, x-ray, explode, `export3d`, PNG snapshots, click selection, and touch gestures. Mesh compare (Three.js) remains the default offline view; live engine is opt-in (uses API minutes). Open sessions are registered in-memory so the Jobs modal can stop them. WASM is copied to `apps/web/public/` via `npm postinstall` (`scripts/copy-wasm.mjs`).

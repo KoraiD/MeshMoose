@@ -17,7 +17,12 @@ function emit() {
 }
 
 export function registerEngineSession(jobId: string, jobTitle: string): void {
-  sessions.set(jobId, { jobId, jobTitle, startedAt: Date.now() })
+  const existing = sessions.get(jobId)
+  sessions.set(jobId, {
+    jobId,
+    jobTitle,
+    startedAt: existing?.startedAt ?? Date.now(),
+  })
   emit()
 }
 

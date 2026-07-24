@@ -25,9 +25,9 @@ The API forwards this token to Zoo and **does not** persist it. Public routes: `
 | `GET` | `/health` | no | Service health + version |
 | `GET` | `/demos` | no | Packaged demo manifests |
 | `POST` | `/jobs/from-demo/{demo_id}` | yes | Start a job from a demo (`mode`, optional `prompt` form fields) |
-| `GET` | `/jobs` | yes | List jobs (newest first) |
+| `GET` | `/jobs` | yes | List jobs (newest first); includes `active_ms` / `run_started_at` |
 | `POST` | `/jobs` | yes | Create job (`prompt`, `mode`, optional `title` / `tags`, `photos[]`, `meshes[]` multipart) |
-| `GET` | `/jobs/{id}` | yes | Job metadata (hydrated paths, prompts, tags, error) |
+| `GET` | `/jobs/{id}` | yes | Job metadata (hydrated paths, prompts, tags, sanitized `error`) |
 | `PATCH` | `/jobs/{id}` | yes | Rename and/or replace tags (`{ "title"?, "tags"? }`, max 5 tags) |
 | `DELETE` | `/jobs/{id}` | yes | Delete job + files |
 | `POST` | `/jobs/{id}/cancel` | yes | Request cancel while running |
@@ -35,7 +35,10 @@ The API forwards this token to Zoo and **does not** persist it. Public routes: `
 | `POST` | `/jobs/{id}/refine` | yes | Refine (`message`, optional `photos[]` / `meshes[]`) |
 | `GET` | `/finishes` | yes | List PBR Apply-finish presets |
 | `POST` | `/jobs/{id}/finish` | yes | Apply finish preset (`preset` form field) and re-export |
-| `GET` | `/jobs/{id}/events` | yes | SSE log/event stream (stays open for refine / finish after success) |
+| `GET` | `/jobs/{id}/events` | yes | SSE log/event stream; optional `?after=N` (event index) to resume after reconnect |
+| `GET` | `/jobs/{id}/reference` | yes | Active Compare reference + available mesh sources |
+| `PUT` | `/jobs/{id}/reference` | yes | Set Compare reference (`{ "source": "inputs/…" \| "outputs/reference.stl" }`) |
+| `POST` | `/jobs/{id}/align` | yes | ICP-align generated onto reference; returns transform + deviation stats/heatmap data |
 | `GET` | `/jobs/{id}/artifacts` | yes | Artifact index |
 | `GET` | `/jobs/{id}/files/{path}` | yes | Download an artifact file |
 | `GET` | `/zoo/usage` | yes | Zoo credits + recent calls (sanitized) |
@@ -79,6 +82,13 @@ curl -sS -X PATCH "http://127.0.0.1:8787/jobs/$JOB_ID" \
 curl -sS -X POST "http://127.0.0.1:8787/jobs/$JOB_ID/finish" \
   -H "Authorization: Bearer $ZOO_API_TOKEN" \
   -F "preset=brushed-aluminum"
+```
+
+## Align meshes
+
+```bash
+curl -sS -X POST "http://127.0.0.1:8787/jobs/$JOB_ID/align" \
+  -H "Authorization: Bearer $ZOO_API_TOKEN"
 ```
 
 ## Job statuses

@@ -28,37 +28,41 @@ export function DocsPage({ onBack }: Props) {
         <h2>User guide</h2>
         <ol>
           <li>
-            Open <strong>Settings</strong>, paste your Zoo API token (stored only in this
-            browser), and optionally pick a theme.
+            Open <strong>API key</strong>, paste your Zoo API token (stored only in this
+            browser). Optionally enable <strong>usage auto-refresh</strong> (every 10 minutes)
+            so credits stay up to date while the app is open.
+          </li>
+          <li>
+            In <strong>Settings</strong>: theme, browser notifications when jobs finish, the
+            shared <strong>tag library</strong>, custom <strong>refine snippets</strong> (text +
+            optional photo/mesh attachments), and prompt templates.
           </li>
           <li>
             Click <strong>New job</strong>. Choose a prompt template or write your own; give
             the job a title; upload at least one photo (JPG / PNG / WebP / GIF / HEIC / HEIF —
             HEIC/HEIF convert to JPEG for Zoo) and one mesh (STL / PLY / OBJ / 3MF / XYZ). Or
-            load a packaged demo (<code>beverage-holder-stand</code> or{' '}
-            <code>partial-stand</code>).
+            load a packaged demo (<code>beverage-holder-stand</code>,{' '}
+            <code>partial-stand</code>, or <code>brick-wall</code>).
           </li>
           <li>
-            Watch the job in the sidebar. Open <strong>Compare</strong> for side-by-side or
-            before/after overlay meshes, <strong>Live engine</strong> for Zoo WebRTC
-            preview (zoom / pan / rotate / scale, views, x-ray, explode, export, snaps), or{' '}
-            <strong>Workbench</strong> for logs, assistant notes, metrics, and KCL.
+            Watch the job in the sidebar or the <strong>List</strong> (Jobs) modal. Status
+            updates automatically while the app is open. Open <strong>Compare</strong> for
+            side-by-side or before/after overlay meshes (selectable reference, Align +
+            deviation heatmap), <strong>Live engine</strong> for Zoo WebRTC preview, or{' '}
+            <strong>Workbench</strong> for logs, assistant notes, metrics, active time, and
+            KCL (including diff vs initial).
           </li>
           <li>
-            In Workbench, review photos, logs, assistant notes, metrics (volume units
-            mm³ / cm³ / in³), and <code>main.kcl</code>.
-          </li>
-          <li>
-            Rename the job and add up to five tags from the detail header. Filter the Jobs
-            list by name, ID, tag, state, or time. Refine with text (and optional new
-            photos/meshes) when the run succeeds. Use <strong>Apply finish</strong> to set
-            a PBR material preset on the solid (KCL <code>appearance</code>) without an
-            Agent call. Download generated mesh as STL, STEP, or 3MF.
+            Rename the job and add up to five tags from the library (custom tags appear first
+            in suggestions). Filter jobs by name, ID, tag, state, or time. Refine with text,
+            optional new photos/meshes, or a saved snippet. Use <strong>Apply finish</strong>{' '}
+            for a PBR material preset without an Agent call. Download STL, STEP, or 3MF.
           </li>
           <li>
             Failed jobs can be <strong>Retry</strong>’d from the UI or{' '}
-            <code>meshmoose jobs retry</code>. Offline, use{' '}
-            <code>meshmoose mesh corrupt</code> to simulate incomplete scans for demos.
+            <code>meshmoose jobs retry</code>. Transient Engine hangups during export are
+            retried automatically. Offline, use <code>meshmoose mesh corrupt</code> to
+            simulate incomplete scans for demos.
           </li>
         </ol>
         <p className="muted">
@@ -131,7 +135,17 @@ export function DocsPage({ onBack }: Props) {
             <tr>
               <td>GET</td>
               <td>/jobs/&#123;id&#125;/events</td>
-              <td>SSE log stream</td>
+              <td>SSE log stream (<code>?after=N</code> to resume)</td>
+            </tr>
+            <tr>
+              <td>GET / PUT</td>
+              <td>/jobs/&#123;id&#125;/reference</td>
+              <td>Compare reference mesh</td>
+            </tr>
+            <tr>
+              <td>POST</td>
+              <td>/jobs/&#123;id&#125;/align</td>
+              <td>ICP align + deviation</td>
             </tr>
             <tr>
               <td>GET</td>
@@ -164,6 +178,7 @@ export function DocsPage({ onBack }: Props) {
         <pre className="docs-pre">{`export ZOO_API_TOKEN=…
 meshmoose health
 meshmoose demos run beverage-holder-stand --mode fast --wait
+meshmoose demos run brick-wall --mode fast --wait
 meshmoose demos run partial-stand --mode thoughtful --wait
 meshmoose jobs create --prompt "Make a stand" --photo a.jpg --mesh a.stl \
   --title "Stand" --tag stand --wait

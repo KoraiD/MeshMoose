@@ -67,18 +67,21 @@ class JobLogger:
         return event
 
     def read_events(self, after: int = 0) -> list[dict[str, Any]]:
+        """Return parsed events with index >= after (event count, not file line)."""
         if not self.events_path.is_file():
             return []
         events: list[dict[str, Any]] = []
+        idx = 0
         with self.events_path.open(encoding="utf-8") as fh:
-            for i, line in enumerate(fh):
-                if i < after:
-                    continue
+            for line in fh:
                 line = line.strip()
                 if not line:
                     continue
                 try:
-                    events.append(json.loads(line))
+                    ev = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                if idx >= after:
+                    events.append(ev)
+                idx += 1
         return events

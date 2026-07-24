@@ -263,6 +263,16 @@ select:focus-visible {
   border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
 }
 
+.banner.ok {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+  color: var(--ok);
+}
+
 .banner.bad {
   display: flex;
   flex-wrap: wrap;
@@ -271,6 +281,18 @@ select:focus-visible {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
   color: var(--danger);
+}
+
+.banner.job-error {
+  display: block;
+  max-height: 6.5rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  animation: none;
 }
 
 .layout {
@@ -794,7 +816,17 @@ select:focus-visible {
   background: var(--viewport-bg);
 }
 
-.viewport.placeholder,
+/* Standalone empty viewport (Compare placeholders) — keep normal flow/size. */
+.viewport.placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 1rem;
+}
+
+/* Overlay inside a live .viewport (StlViewport loading/error). */
 .viewport-empty {
   position: absolute;
   inset: 0;
@@ -1314,6 +1346,10 @@ button.linkish:hover:not(:disabled) {
   margin: 0 0 0.75rem;
 }
 
+.usage-updated {
+  margin: 0.35rem 0 0.75rem;
+}
+
 .usage-calls h4 {
   margin: 0 0 0.4rem;
   font-size: 0.88rem;
@@ -1361,26 +1397,122 @@ button.linkish:hover:not(:disabled) {
   }
 }
 
-.token-chip {
+.api-key-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  font-size: 0.75rem;
-  color: var(--muted);
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 0.25rem 0.55rem;
+  border-radius: 8px;
+  padding: 0.4rem 0.75rem;
+  background: var(--panel);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.api-key-btn:hover {
+  border-color: var(--accent);
   background: var(--panel-2);
 }
 
-.token-chip.on {
-  color: var(--ok);
-  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+.api-key-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
 }
 
-.token-chip.off {
+.api-key-btn.on {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+}
+
+.api-key-btn.on .api-key-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+
+.api-key-btn.off {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
   color: var(--warn);
-  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+}
+
+.api-key-btn.off .api-key-dot {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+}
+
+.settings-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.tag-library-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.tag-library-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.settings-tag-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.tag-suggest-wrap {
+  position: relative;
+  min-width: 8rem;
+}
+
+.tag-suggest-list {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  max-height: 10rem;
+  overflow: auto;
+}
+
+.tag-suggest-list button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.tag-suggest-list button:hover {
+  background: var(--panel-2);
 }
 
 .snap-grid {
@@ -2164,6 +2296,11 @@ button.linkish:hover:not(:disabled) {
   width: min(40rem, 92vw);
   max-height: 84vh;
   overflow-y: auto;
+}
+
+.jobs-modal-filters {
+  margin-top: 0.35rem;
+  margin-bottom: 0.25rem;
 }
 
 .modal-head-actions {

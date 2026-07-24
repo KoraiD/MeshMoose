@@ -37,6 +37,10 @@ export type Job = {
   status: string
   created_at: string
   updated_at: string
+  /** Cumulative ms spent in running pipeline statuses. */
+  active_ms?: number | null
+  /** ISO start of the current running segment, if any. */
+  run_started_at?: string | null
   conversation_id?: string | null
   error?: string | null
   input_photos?: string[]
@@ -216,7 +220,11 @@ export async function retryJob(id: string): Promise<Job> {
 export type AlignResult = {
   /** 4×4 row-major matrix (nested rows) mapping generated → reference space. */
   transform: number[][]
-  vertex_indices: number[]
+  /**
+   * Optional sparse sample indices into the generated mesh.
+   * Omitted when distances are contiguous per-vertex (0..N-1).
+   */
+  vertex_indices?: number[] | null
   distances: number[]
   stats: {
     samples: number
@@ -334,42 +342,71 @@ export function subscribeJobEvents(
   onError?: (err: Error) => void,
 ): () => void {
   const token = getApiToken()
-  const url = `${BASE}/jobs/${jobId}/events`
-  const controller = new AbortController()
+  let stopped = false
+  let after = 0
+  let controller: AbortController | null = null
+
+  const sleep = (ms: number) =>
+    new Promise<void>((resolve) => {
+      window.setTimeout(resolve, ms)
+    })
 
   void (async () => {
-    try {
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: controller.signal,
-      })
-      if (!res.ok || !res.body) {
-        throw new Error(await errDetail(res))
-      }
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const chunks = buffer.split('\n\n')
-        buffer = chunks.pop() ?? ''
-        for (const chunk of chunks) {
-          const line = chunk.split('\n').find((l) => l.startsWith('data: '))
-          if (!line) continue
-          try {
-            onEvent(JSON.parse(line.slice(6)) as JobEvent)
-          } catch {
-            /* ignore malformed */
+    let failures = 0
+    while (!stopped) {
+      controller = new AbortController()
+      try {
+        const url = `${BASE}/jobs/${jobId}/events?after=${after}`
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        })
+        if (!res.ok || !res.body) {
+          throw new Error(await errDetail(res))
+        }
+        failures = 0
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        while (!stopped) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const chunks = buffer.split('\n\n')
+          buffer = chunks.pop() ?? ''
+          for (const chunk of chunks) {
+            const line = chunk.split('\n').find((l) => l.startsWith('data: '))
+            if (!line) continue
+            try {
+              const ev = JSON.parse(line.slice(6)) as JobEvent
+              after += 1
+              onEvent(ev)
+              if (ev.kind === 'stream_end' && ev.status === 'gone') {
+                stopped = true
+              }
+            } catch {
+              /* ignore malformed */
+            }
           }
         }
+        if (stopped) return
+        // Stream ended (API reload, proxy idle timeout, etc.) — resume from cursor.
+        await sleep(800)
+      } catch (e) {
+        if (stopped || (e as Error).name === 'AbortError') return
+        failures += 1
+        // Only surface persistent failures; brief disconnects reconnect silently.
+        if (failures >= 3) {
+          onError?.(e as Error)
+          failures = 0
+        }
+        await sleep(Math.min(4000, 1000 * Math.max(1, failures)))
       }
-    } catch (e) {
-      if ((e as Error).name === 'AbortError') return
-      onError?.(e as Error)
     }
   })()
 
-  return () => controller.abort()
+  return () => {
+    stopped = true
+    controller?.abort()
+  }
 }
