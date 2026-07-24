@@ -53,6 +53,10 @@ import { UsageMeter } from './UsageMeter'
 type Props = {
   kcl: string | null
   active: boolean
+  /** Whether main.kcl is available (may differ from active when Live engine is off). */
+  hasKcl: boolean
+  /** Current job status — used for idle messaging when KCL is missing. */
+  jobStatus?: string
   jobSeconds?: number | null
   onCopyKcl?: () => void
   onDownloadKcl?: () => void
@@ -104,6 +108,8 @@ function IconBtn({
 export function ZooEngineView({
   kcl,
   active,
+  hasKcl,
+  jobStatus,
   jobSeconds,
   onCopyKcl,
   onDownloadKcl,
@@ -885,13 +891,33 @@ export function ZooEngineView({
   }
 
   if (!active) {
-    return (
-      <div className="engine-shell idle panel-block">
-        <p className="muted">
+    let idleMessage: ReactNode
+    if (!hasKcl && jobStatus === 'failed') {
+      idleMessage = (
+        <>
+          This job failed before producing <code>main.kcl</code>. Retry the job or refine
+          from Workbench/Iterate once KCL exists.
+        </>
+      )
+    } else if (!hasKcl) {
+      idleMessage = (
+        <>
+          Waiting for <code>main.kcl</code> — Live engine needs a completed reconstruction
+          export.
+        </>
+      )
+    } else {
+      idleMessage = (
+        <>
           Turn on <strong>Live engine</strong> for a Zoo WebRTC preview of{' '}
           <code>main.kcl</code> (uses API minutes). Open the large viewer for the full
           toolset.
-        </p>
+        </>
+      )
+    }
+    return (
+      <div className="engine-shell idle panel-block">
+        <p className="muted">{idleMessage}</p>
       </div>
     )
   }

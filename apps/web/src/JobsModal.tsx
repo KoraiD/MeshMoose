@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Job } from './api'
 import type { EngineSession } from './engineSessions'
 import {
@@ -62,6 +62,15 @@ export function JobsModal({
 
   const filtersActive =
     Boolean(jobQuery.trim()) || jobStatusFilter !== 'all' || jobTimeFilter !== 'all'
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
 
   if (!open) return null
 

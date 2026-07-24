@@ -101,8 +101,14 @@ const PROMPT_MAX = 8000
 /** Refine stays short so iterations stay focused. */
 const REFINE_MAX = 2000
 
-type DetailTab = 'compare' | 'engine' | 'workbench'
-type WorkbenchPanel = 'photos' | 'logs' | 'assistant' | 'kcl' | 'metrics'
+type DetailTab = 'compare' | 'engine' | 'workbench' | 'iterate'
+
+const DETAIL_TABS = [
+  ['compare', 'Compare'],
+  ['engine', 'Live engine'],
+  ['workbench', 'Workbench'],
+  ['iterate', 'Iterate'],
+] as const
 
 function promptHistory(job: Job): PromptEntry[] {
   if (job.prompts?.length) return job.prompts
@@ -261,10 +267,17 @@ export default function App() {
     return id?.trim() || null
   })
   const [job, setJob] = useState<Job | null>(null)
+  const [jobLoading, setJobLoading] = useState(false)
   const [events, setEvents] = useState<JobEvent[]>([])
   const [createOpen, setCreateOpen] = useState(false)
+  const [createPane, setCreatePane] = useState<'upload' | 'demo'>('upload')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const [jobsDrawerOpen, setJobsDrawerOpen] = useState(false)
+  const [compareAlignOpen, setCompareAlignOpen] = useState(true)
+  const [compareNudgeOpen, setCompareNudgeOpen] = useState(false)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [prompt, setPrompt] = useState('')
   const [mode, setMode] = useState<string>('thoughtful')
   const [photos, setPhotos] = useState<FileList | null>(null)
@@ -290,9 +303,8 @@ export default function App() {
     'all' | 'debug' | 'info' | 'warn' | 'error'
   >('all')
   const [detailTab, setDetailTab] = useState<DetailTab>('compare')
-  const [historyOpen, setHistoryOpen] = useState(true)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [engineOn, setEngineOn] = useState(false)
-  const [activePanel, setActivePanel] = useState<WorkbenchPanel>('photos')
   const [metricsView, setMetricsView] = useState<'json' | 'table'>('json')
   const [nowTick, setNowTick] = useState(() => Date.now())
   const [appView, setAppView] = useState<'app' | 'docs'>('app')
@@ -321,6 +333,7 @@ export default function App() {
   const logPanelRef = useRef<HTMLDivElement>(null)
   const stickLogToBottom = useRef(true)
   const jobsListRef = useRef<HTMLUListElement>(null)
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [jobsHasMore, setJobsHasMore] = useState(false)
   const [jobsModalOpen, setJobsModalOpen] = useState(false)
   const [engineSessions, setEngineSessions] = useState(listEngineSessions())
@@ -375,6 +388,22 @@ export default function App() {
     appLog(message, 'error')
   }, [])
 
+  const showToast = useCallback((message: string) => {
+    setToast(message)
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => {
+      toastTimerRef.current = null
+      setToast(null)
+    }, 6000)
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    },
+    [],
+  )
+
   const refreshJobs = useCallback(async () => {
     if (!getApiToken()) {
       setJobs([])
@@ -383,9 +412,9 @@ export default function App() {
     try {
       setJobs(await listJobs())
     } catch (e) {
-      reportError((e as Error).message)
+      showToast((e as Error).message)
     }
-  }, [reportError])
+  }, [showToast])
 
   const refreshArtifacts = useCallback(async (jobId: string) => {
     try {
@@ -455,7 +484,7 @@ export default function App() {
     const listed = jobs.find((j) => j.id === selectedId)
     if (!listed) return
     setJob((prev) => {
-      if (!prev || prev.id !== listed.id) return listed
+      if (!prev || prev.id !== listed.id) return prev
       if (
         prev.status === listed.status &&
         prev.updated_at === listed.updated_at &&
@@ -496,6 +525,7 @@ export default function App() {
   useEffect(() => {
     if (!selectedId || !getApiToken()) {
       setJob(null)
+      setJobLoading(false)
       setEvents([])
       setKcl('')
       setMetrics('')
@@ -505,11 +535,19 @@ export default function App() {
       return
     }
     let active = true
+    setJob(null)
+    setJobLoading(true)
     void getJob(selectedId)
       .then((j) => {
-        if (active) setJob(j)
+        if (!active) return
+        setJob(j)
+        setJobLoading(false)
       })
-      .catch((e) => reportError((e as Error).message))
+      .catch((e) => {
+        if (!active) return
+        setJobLoading(false)
+        showToast((e as Error).message)
+      })
     void refreshArtifacts(selectedId)
 
     setEvents([])
@@ -579,7 +617,7 @@ export default function App() {
       if (refreshTimer) clearTimeout(refreshTimer)
       stop()
     }
-  }, [selectedId, refreshJobs, refreshArtifacts, reportError])
+  }, [selectedId, refreshJobs, refreshArtifacts, reportError, showToast])
 
   useEffect(() => {
     if (!job) return
@@ -974,7 +1012,7 @@ export default function App() {
       setRefineSnippetId('')
       setKcl('')
       setMetrics('')
-      setDetailTab('compare')
+      setDetailTab('iterate')
       appLog(
         `Refine queued on ${job.id.slice(-8)}` +
           (photos.length || meshes.length ? ' with attachments' : ''),
@@ -1024,8 +1062,14 @@ export default function App() {
     [finishes, finishId],
   )
 
-  async function onDeleteJob(jobId: string) {
-    if (!window.confirm('Delete this job and all its files?')) return
+  function onDeleteJob(jobId: string) {
+    setDeleteConfirmId(jobId)
+  }
+
+  async function confirmDeleteJob() {
+    const jobId = deleteConfirmId
+    if (!jobId) return
+    setDeleteConfirmId(null)
     setError(null)
     try {
       await deleteJob(jobId)
@@ -1144,7 +1188,43 @@ export default function App() {
   if (appView === 'docs') {
     return (
       <div className="app">
-        <DocsPage onBack={() => setAppView('app')} />
+        <header className="topbar topbar-slim">
+          <div className="brand-row">
+            <img
+              className="brand-logo"
+              src="/logo.png"
+              width={56}
+              height={56}
+              alt="MeshMoose"
+            />
+            <div className="brand-text">
+              <p className="eyebrow">Multimodal reconstruction</p>
+              <h1 className="brand">
+                Mesh<span>Moose</span>
+              </h1>
+            </div>
+          </div>
+          <div className="topbar-actions">
+            <button
+              type="button"
+              className={`api-key-btn ${keySaved ? 'on' : 'off'}`}
+              onClick={() => setApiAccountOpen(true)}
+              title="Zoo API token and usage"
+            >
+              <span className="api-key-dot" aria-hidden />
+              {keySaved ? 'API key on' : 'API key needed'}
+            </button>
+            <button type="button" onClick={() => setAppView('app')}>
+              ← Back to app
+            </button>
+          </div>
+        </header>
+        <DocsPage embedded onBack={() => setAppView('app')} />
+        <ApiAccountModal
+          open={apiAccountOpen}
+          onClose={() => setApiAccountOpen(false)}
+          onTokenChange={onTokenChange}
+        />
       </div>
     )
   }
@@ -1168,12 +1248,19 @@ export default function App() {
               </h1>
             </div>
           </div>
-          <p className="tag">
+          <p className="tag tag-desktop">
             From rough scans to editable CAD — photo, mesh, and text into
             parametric KCL.
           </p>
         </div>
         <div className="topbar-actions">
+          <button
+            type="button"
+            className="jobs-mobile-toggle"
+            onClick={() => setJobsDrawerOpen(true)}
+          >
+            Jobs
+          </button>
           <button
             type="button"
             className={`api-key-btn ${keySaved ? 'on' : 'off'}`}
@@ -1188,6 +1275,7 @@ export default function App() {
             className="primary"
             onClick={() => {
               setCreateError(null)
+              setCreatePane('upload')
               setCreateOpen(true)
             }}
           >
@@ -1201,6 +1289,23 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {toast ? (
+        <div className="banner warn toast-banner" role="status">
+          {toast}{' '}
+          <button
+            type="button"
+            className="linkish"
+            onClick={() => {
+              if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+              toastTimerRef.current = null
+              setToast(null)
+            }}
+          >
+            dismiss
+          </button>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="banner bad">
@@ -1220,17 +1325,34 @@ export default function App() {
         </div>
       ) : null}
 
+      {jobsDrawerOpen ? (
+        <div
+          className="jobs-drawer-backdrop"
+          onClick={() => setJobsDrawerOpen(false)}
+          aria-hidden
+        />
+      ) : null}
+
       <div className="layout">
-        <aside className="panel jobs">
+        <aside className={`panel jobs${jobsDrawerOpen ? ' drawer-open' : ''}`}>
           <div className="jobs-head">
             <h2>Jobs</h2>
-            <button
-              type="button"
-              onClick={() => setJobsModalOpen(true)}
-              title="Open the full jobs list, in-progress runs, and engine sessions"
-            >
-              List
-            </button>
+            <div className="jobs-head-actions">
+              <button
+                type="button"
+                className="jobs-drawer-close"
+                onClick={() => setJobsDrawerOpen(false)}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => setJobsModalOpen(true)}
+                title="Open the full jobs list, in-progress runs, and engine sessions"
+              >
+                All jobs
+              </button>
+            </div>
           </div>
           <div className="jobs-filters">
             <label className="jobs-filter-search">
@@ -1294,7 +1416,10 @@ export default function App() {
                 <button
                   type="button"
                   className={`job-select${j.id === selectedId ? ' active' : ''}`}
-                  onClick={() => setSelectedId(j.id)}
+                  onClick={() => {
+                    setSelectedId(j.id)
+                    setJobsDrawerOpen(false)
+                  }}
                 >
                   <span className={`pill ${statusClass(j.status)}`}>{j.status}</span>
                   <span className="job-title">{j.title}</span>
@@ -1326,7 +1451,11 @@ export default function App() {
         </aside>
 
         <main className="main-col">
-          {job ? (
+          {selectedId && !job ? (
+            <section className="panel detail empty-detail" aria-busy={jobLoading}>
+              <p className="muted">Loading job…</p>
+            </section>
+          ) : job ? (
             <section className="panel detail">
               <div className="detail-head">
                 <div className="detail-title-edit">
@@ -1454,24 +1583,37 @@ export default function App() {
               ) : null}
               {job.notes ? <div className="banner warn">{job.notes}</div> : null}
 
-              <div className="detail-tabs" role="tablist" aria-label="Job views">
-                {(
-                  [
-                    ['compare', 'Compare meshes'],
-                    ['engine', 'Live engine'],
-                    ['workbench', 'Workbench'],
-                  ] as const
-                ).map(([id, label]) => (
+              <div
+                className="detail-tabs"
+                role="tablist"
+                aria-label="Job views"
+                onKeyDown={(e) => {
+                  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+                  e.preventDefault()
+                  const ids = DETAIL_TABS.map(([id]) => id)
+                  const idx = ids.indexOf(detailTab)
+                  const next =
+                    e.key === 'ArrowRight'
+                      ? ids[(idx + 1) % ids.length]
+                      : ids[(idx - 1 + ids.length) % ids.length]
+                  setDetailTab(next)
+                  if (next === 'engine') setEngineOn(true)
+                  else setEngineOn(false)
+                }}
+              >
+                {DETAIL_TABS.map(([id, label]) => (
                   <button
                     key={id}
+                    id={`tab-${id}`}
                     type="button"
                     role="tab"
                     aria-selected={detailTab === id}
+                    aria-controls={`panel-${id}`}
                     className={detailTab === id ? 'active' : ''}
                     onClick={() => {
                       setDetailTab(id)
                       if (id === 'engine') setEngineOn(true)
-                      if (id !== 'engine') setEngineOn(false)
+                      else setEngineOn(false)
                     }}
                   >
                     {label}
@@ -1480,7 +1622,12 @@ export default function App() {
               </div>
 
               {detailTab === 'compare' ? (
-                <div className="compare-wrap">
+                <div
+                  className="compare-wrap"
+                  role="tabpanel"
+                  id="panel-compare"
+                  aria-labelledby="tab-compare"
+                >
                   <div className="compare-toolbar">
                     <div className="view-toggle" role="group" aria-label="Compare mode">
                       <button
@@ -1557,113 +1704,162 @@ export default function App() {
                         <button
                           type="button"
                           className="viewport-btn"
-                          disabled={alignBusy}
-                          onClick={() => {
-                            if (!job) return
-                            setAlignBusy(true)
-                            setAlignError(null)
-                            alignJob(job.id)
-                              .then((res) => {
-                                setAlignResult(res)
-                                setHeatmapOn(true)
-                              })
-                              .catch((e: Error) => setAlignError(e.message))
-                              .finally(() => setAlignBusy(false))
-                          }}
-                          title="ICP-align generated mesh onto reference and compute deviation"
+                          aria-expanded={compareAlignOpen}
+                          onClick={() => setCompareAlignOpen((v) => !v)}
                         >
-                          {alignBusy ? 'Aligning…' : alignResult ? 'Re-align' : 'Align + deviation'}
+                          Align tools
                         </button>
-                        {alignResult ? (
+                        {compareAlignOpen ? (
                           <>
                             <button
                               type="button"
-                              className={`viewport-btn${heatmapOn ? ' active' : ''}`}
-                              onClick={() => setHeatmapOn((v) => !v)}
-                              title="Color generated mesh by distance to reference"
-                            >
-                              Heatmap
-                            </button>
-                            <button
-                              type="button"
                               className="viewport-btn"
+                              disabled={alignBusy}
                               onClick={() => {
-                                setAlignResult(null)
-                                setHeatmapOn(false)
-                                setNudge({ translate: [0, 0, 0], rotateDeg: [0, 0, 0], scale: 1 })
+                                if (!job) return
+                                setAlignBusy(true)
+                                setAlignError(null)
+                                alignJob(job.id)
+                                  .then((res) => {
+                                    setAlignResult(res)
+                                    setHeatmapOn(true)
+                                  })
+                                  .catch((e: Error) => setAlignError(e.message))
+                                  .finally(() => setAlignBusy(false))
                               }}
-                              title="Clear alignment and nudge"
+                              title="ICP-align generated mesh onto reference and compute deviation"
                             >
-                              Reset
+                              {alignBusy
+                                ? 'Aligning…'
+                                : alignResult
+                                  ? 'Re-align'
+                                  : 'Align + deviation'}
                             </button>
-                            <span className="align-stats muted">
-                              mean {alignResult.stats.mean?.toFixed(2) ?? '—'}mm · p95{' '}
-                              {alignResult.stats.p95?.toFixed(2) ?? '—'}mm · max{' '}
-                              {alignResult.stats.max?.toFixed(2) ?? '—'}mm
-                            </span>
+                            {alignResult ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className={`viewport-btn${heatmapOn ? ' active' : ''}`}
+                                  onClick={() => setHeatmapOn((v) => !v)}
+                                  title="Color generated mesh by distance to reference"
+                                >
+                                  Heatmap
+                                </button>
+                                <button
+                                  type="button"
+                                  className="viewport-btn"
+                                  onClick={() => {
+                                    setAlignResult(null)
+                                    setHeatmapOn(false)
+                                    setNudge({
+                                      translate: [0, 0, 0],
+                                      rotateDeg: [0, 0, 0],
+                                      scale: 1,
+                                    })
+                                  }}
+                                  title="Clear alignment and nudge"
+                                >
+                                  Reset
+                                </button>
+                                <span className="align-stats muted">
+                                  mean {alignResult.stats.mean?.toFixed(2) ?? '—'}mm · p95{' '}
+                                  {alignResult.stats.p95?.toFixed(2) ?? '—'}mm · max{' '}
+                                  {alignResult.stats.max?.toFixed(2) ?? '—'}mm
+                                </span>
+                              </>
+                            ) : null}
+                            {alignError ? (
+                              <span className="align-error">{alignError}</span>
+                            ) : null}
                           </>
                         ) : null}
-                        {alignError ? <span className="align-error">{alignError}</span> : null}
                       </div>
                     ) : null}
                     {compareMode === 'overlay' && alignResult ? (
                       <div className="nudge-controls">
-                        {(['X', 'Y', 'Z'] as const).map((axis, i) => (
-                          <label key={`t-${axis}`}>
-                            T{axis}
-                            <input
-                              type="range"
-                              min={-10}
-                              max={10}
-                              step={0.1}
-                              value={nudge.translate[i]}
-                              onChange={(e) => {
-                                const v = Number(e.target.value)
-                                setNudge((n) => {
-                                  const t = [...n.translate] as [number, number, number]
-                                  t[i] = v
-                                  return { ...n, translate: t }
-                                })
-                              }}
-                            />
-                            <span className="nudge-val">{nudge.translate[i].toFixed(1)}</span>
-                          </label>
-                        ))}
-                        {(['X', 'Y', 'Z'] as const).map((axis, i) => (
-                          <label key={`r-${axis}`}>
-                            R{axis}°
-                            <input
-                              type="range"
-                              min={-180}
-                              max={180}
-                              step={1}
-                              value={nudge.rotateDeg[i]}
-                              onChange={(e) => {
-                                const v = Number(e.target.value)
-                                setNudge((n) => {
-                                  const r = [...n.rotateDeg] as [number, number, number]
-                                  r[i] = v
-                                  return { ...n, rotateDeg: r }
-                                })
-                              }}
-                            />
-                            <span className="nudge-val">{nudge.rotateDeg[i].toFixed(0)}</span>
-                          </label>
-                        ))}
-                        <label>
-                          Scale
-                          <input
-                            type="range"
-                            min={0.8}
-                            max={1.2}
-                            step={0.005}
-                            value={nudge.scale}
-                            onChange={(e) =>
-                              setNudge((n) => ({ ...n, scale: Number(e.target.value) }))
-                            }
-                          />
-                          <span className="nudge-val">{nudge.scale.toFixed(3)}</span>
-                        </label>
+                        <button
+                          type="button"
+                          className="viewport-btn"
+                          aria-expanded={compareNudgeOpen}
+                          onClick={() => setCompareNudgeOpen((v) => !v)}
+                        >
+                          Manual nudge
+                        </button>
+                        {compareNudgeOpen ? (
+                          <>
+                            {(['X', 'Y', 'Z'] as const).map((axis, i) => (
+                              <label key={`t-${axis}`}>
+                                T{axis}
+                                <input
+                                  type="range"
+                                  min={-10}
+                                  max={10}
+                                  step={0.1}
+                                  value={nudge.translate[i]}
+                                  onChange={(e) => {
+                                    const v = Number(e.target.value)
+                                    setNudge((n) => {
+                                      const t = [...n.translate] as [
+                                        number,
+                                        number,
+                                        number,
+                                      ]
+                                      t[i] = v
+                                      return { ...n, translate: t }
+                                    })
+                                  }}
+                                />
+                                <span className="nudge-val">
+                                  {nudge.translate[i].toFixed(1)}
+                                </span>
+                              </label>
+                            ))}
+                            {(['X', 'Y', 'Z'] as const).map((axis, i) => (
+                              <label key={`r-${axis}`}>
+                                R{axis}°
+                                <input
+                                  type="range"
+                                  min={-180}
+                                  max={180}
+                                  step={1}
+                                  value={nudge.rotateDeg[i]}
+                                  onChange={(e) => {
+                                    const v = Number(e.target.value)
+                                    setNudge((n) => {
+                                      const r = [...n.rotateDeg] as [
+                                        number,
+                                        number,
+                                        number,
+                                      ]
+                                      r[i] = v
+                                      return { ...n, rotateDeg: r }
+                                    })
+                                  }}
+                                />
+                                <span className="nudge-val">
+                                  {nudge.rotateDeg[i].toFixed(0)}
+                                </span>
+                              </label>
+                            ))}
+                            <label>
+                              Scale
+                              <input
+                                type="range"
+                                min={0.8}
+                                max={1.2}
+                                step={0.005}
+                                value={nudge.scale}
+                                onChange={(e) =>
+                                  setNudge((n) => ({
+                                    ...n,
+                                    scale: Number(e.target.value),
+                                  }))
+                                }
+                              />
+                              <span className="nudge-val">{nudge.scale.toFixed(3)}</span>
+                            </label>
+                          </>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -1763,43 +1959,53 @@ export default function App() {
               ) : null}
 
               {detailTab === 'engine' ? (
-                <Suspense
-                  fallback={
-                    <div className="engine-shell idle panel-block">
-                      <p className="muted">Loading Zoo Engine view…</p>
-                    </div>
-                  }
+                <div
+                  role="tabpanel"
+                  id="panel-engine"
+                  aria-labelledby="tab-engine"
                 >
-                  <ZooEngineView
-                    kcl={kcl || null}
-                    active={engineOn && Boolean(kcl)}
-                    jobSeconds={jobSeconds}
-                    onCopyKcl={() => {
-                      if (!kcl) return
-                      void navigator.clipboard.writeText(kcl).then(
-                        () => appLog('Copied main.kcl to clipboard'),
-                        () => reportError('Could not copy KCL'),
-                      )
-                    }}
-                    onDownloadKcl={() => {
-                      if (!job || !kcl) return
-                      void downloadAuth(job.id, 'outputs/main.kcl', 'main.kcl')
-                    }}
-                  />
-                </Suspense>
+                  <Suspense
+                    fallback={
+                      <div className="engine-shell idle panel-block">
+                        <p className="muted">Loading Zoo Engine view…</p>
+                      </div>
+                    }
+                  >
+                    <ZooEngineView
+                      kcl={kcl || null}
+                      active={engineOn && Boolean(kcl)}
+                      hasKcl={Boolean(kcl)}
+                      jobStatus={job.status}
+                      jobSeconds={jobSeconds}
+                      onCopyKcl={() => {
+                        if (!kcl) return
+                        void navigator.clipboard.writeText(kcl).then(
+                          () => appLog('Copied main.kcl to clipboard'),
+                          () => reportError('Could not copy KCL'),
+                        )
+                      }}
+                      onDownloadKcl={() => {
+                        if (!job || !kcl) return
+                        void downloadAuth(job.id, 'outputs/main.kcl', 'main.kcl')
+                      }}
+                    />
+                  </Suspense>
+                </div>
               ) : null}
 
               {detailTab === 'workbench' ? (
-                <div className="workbench">
+                <div
+                  className="workbench"
+                  role="tabpanel"
+                  id="panel-workbench"
+                  aria-labelledby="tab-workbench"
+                >
                   <UsageMeter
                     jobSeconds={jobSeconds}
                     refreshKey={`${job.id}-${job.status}-${events.length}`}
                   />
 
-                  <div
-                    className={`panel-block snapshots${activePanel === 'photos' ? ' is-active' : ''}`}
-                    onMouseDown={() => setActivePanel('photos')}
-                  >
+                  <div className="panel-block snapshots">
                     <h3>Photos</h3>
                     {snapshots.length ? (
                       <div className="snap-grid">
@@ -1876,10 +2082,7 @@ export default function App() {
                   ) : null}
 
                   <div className="workbench-quad">
-                    <div
-                      className={`panel-block${activePanel === 'logs' ? ' is-active' : ''}`}
-                      onMouseDown={() => setActivePanel('logs')}
-                    >
+                    <div className="panel-block">
                       <div className="panel-head-row">
                         <h3>Logs</h3>
                         <button
@@ -1929,25 +2132,26 @@ export default function App() {
                             el.scrollHeight - el.scrollTop - el.clientHeight < 64
                         }}
                       >
-                        {filteredLogs.map((ev, i) => (
-                          <div
-                            key={`${ev.ts}-${i}`}
-                            className={`log-line ${ev.level || 'info'}`}
-                          >
-                            <span className="ts">{ev.ts?.slice(11, 19)}</span>
-                            <span className="lvl">
-                              {(ev.level || 'info').toUpperCase()}
-                            </span>
-                            <span className="msg">{ev.message}</span>
-                          </div>
-                        ))}
+                        {filteredLogs.length === 0 ? (
+                          <p className="muted">No log events yet.</p>
+                        ) : (
+                          filteredLogs.map((ev, i) => (
+                            <div
+                              key={`${ev.ts}-${i}`}
+                              className={`log-line ${ev.level || 'info'}`}
+                            >
+                              <span className="ts">{ev.ts?.slice(11, 19)}</span>
+                              <span className="lvl">
+                                {(ev.level || 'info').toUpperCase()}
+                              </span>
+                              <span className="msg">{ev.message}</span>
+                            </div>
+                          ))
+                        )}
                       </div>
                     </div>
 
-                    <div
-                      className={`panel-block${activePanel === 'assistant' ? ' is-active' : ''}`}
-                      onMouseDown={() => setActivePanel('assistant')}
-                    >
+                    <div className="panel-block">
                       <div className="panel-head-row">
                         <h3>Assistant</h3>
                         <button
@@ -1971,14 +2175,15 @@ export default function App() {
                         </button>
                       </div>
                       <div className="assistant md-panel">
-                        <MarkdownView text={assistantText} />
+                        {assistantText.trim() ? (
+                          <MarkdownView text={assistantText} />
+                        ) : (
+                          <p className="muted">No assistant notes yet.</p>
+                        )}
                       </div>
                     </div>
 
-                    <div
-                      className={`panel-block${activePanel === 'metrics' ? ' is-active' : ''}`}
-                      onMouseDown={() => setActivePanel('metrics')}
-                    >
+                    <div className="panel-block">
                       <div className="panel-head-row">
                         <h3>Metrics</h3>
                         <div className="panel-head-actions">
@@ -2043,10 +2248,7 @@ export default function App() {
                       )}
                     </div>
 
-                    <div
-                      className={`panel-block${activePanel === 'kcl' ? ' is-active' : ''}`}
-                      onMouseDown={() => setActivePanel('kcl')}
-                    >
+                    <div className="panel-block">
                       <div className="panel-head-row">
                         <h3>main.kcl</h3>
                         <div className="panel-head-actions">
@@ -2114,192 +2316,217 @@ export default function App() {
                 </div>
               ) : null}
 
-              <div className="prompt-history">
-                <button
-                  type="button"
-                  className="section-toggle"
-                  onClick={() => setHistoryOpen((v) => !v)}
-                  aria-expanded={historyOpen}
+              {detailTab === 'iterate' ? (
+                <div
+                  className="iterate-panel"
+                  role="tabpanel"
+                  id="panel-iterate"
+                  aria-labelledby="tab-iterate"
                 >
-                  <h3>Prompt history</h3>
-                  <span className="muted">{historyOpen ? 'Hide' : 'Show'} · {history.length}</span>
-                </button>
-                {historyOpen ? (
-                  history.length ? (
-                    <ol className="prompt-list">
-                      {history.map((entry, i) => (
-                        <li key={`${entry.created_at}-${i}`} className="prompt-item">
-                          <div className="prompt-meta">
-                            <span className="prompt-role">{entry.role}</span>
-                            {entry.mode ? <span>{entry.mode}</span> : null}
-                            <span>{formatPromptTime(entry.created_at)}</span>
-                            <span>{entry.text.length} chars</span>
-                          </div>
-                          <p className="prompt-text">{entry.text}</p>
-                        </li>
-                      ))}
-                    </ol>
-                  ) : (
-                    <p className="muted">No prompts recorded for this job yet.</p>
-                  )
-                ) : null}
-              </div>
+                  <div className="prompt-history">
+                    <button
+                      type="button"
+                      className="section-toggle"
+                      onClick={() => setHistoryOpen((v) => !v)}
+                      aria-expanded={historyOpen}
+                    >
+                      <h3>Prompt history</h3>
+                      <span className="muted">
+                        {historyOpen ? 'Hide' : 'Show'} · {history.length}
+                      </span>
+                    </button>
+                    {historyOpen ? (
+                      history.length ? (
+                        <ol className="prompt-list">
+                          {history.map((entry, i) => (
+                            <li
+                              key={`${entry.created_at}-${i}`}
+                              className="prompt-item"
+                            >
+                              <div className="prompt-meta">
+                                <span className="prompt-role">{entry.role}</span>
+                                {entry.mode ? <span>{entry.mode}</span> : null}
+                                <span>{formatPromptTime(entry.created_at)}</span>
+                                <span>{entry.text.length} chars</span>
+                              </div>
+                              <p className="prompt-text">{entry.text}</p>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p className="muted">No prompts recorded for this job yet.</p>
+                      )
+                    ) : null}
+                  </div>
 
-              <form className="refine" onSubmit={onRefine}>
-                <div className="refine-head">
-                  <h3>Refine</h3>
-                  <p className="muted">
-                    Iterate on current main.kcl. Optionally re-attach photos and/or a mesh
-                    for updated reference.
-                  </p>
-                </div>
-                <label>
-                  Snippet
-                  <select
-                    value={refineSnippetId}
-                    disabled={!canRefine}
-                    onChange={(e) => void applyRefineSnippet(e.target.value)}
-                  >
-                    <option value="">Custom instruction…</option>
-                    {refineSnippets.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.title}
-                        {s.attach || s.hasFiles ? ' (package)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Instruction
-                  <textarea
-                    value={refine}
-                    onChange={(e) => setRefine(e.target.value.slice(0, REFINE_MAX))}
-                    rows={3}
-                    maxLength={REFINE_MAX}
-                    disabled={!canRefine}
-                    placeholder="e.g. Make the key-ring hole 4 mm and thicken the body to 3.5 mm"
-                  />
-                </label>
-                <div className="row refine-files">
-                  <label>
-                    Photos (optional)
-                    <input
-                      type="file"
-                      accept=".jpg,.jpeg,.png,.webp,.gif,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
-                      multiple
-                      disabled={!canRefine}
-                      onChange={(e) => setRefinePhotos(e.target.files)}
-                    />
-                  </label>
-                  <label>
-                    Meshes (optional)
-                    <input
-                      type="file"
-                      accept=".stl,.ply,.xyz,.txt,.obj,.3mf"
-                      multiple
-                      disabled={!canRefine}
-                      onChange={(e) => setRefineMeshes(e.target.files)}
-                    />
-                  </label>
-                </div>
-                {refinePkgPhotos.length || refinePkgMeshes.length ? (
-                  <div className="refine-package">
-                    <span className="refine-package-label">Package attachments</span>
-                    <div className="refine-package-chips">
-                      {refinePkgPhotos.map((f) => (
-                        <span key={`p-${f.name}`} className="attach-chip photo" title={f.name}>
-                          {f.name}
-                        </span>
-                      ))}
-                      {refinePkgMeshes.map((f) => (
-                        <span key={`m-${f.name}`} className="attach-chip mesh" title={f.name}>
-                          {f.name}
-                        </span>
-                      ))}
-                      <button
-                        type="button"
-                        className="linkish refine-package-clear"
-                        onClick={() => {
-                          setRefinePkgPhotos([])
-                          setRefinePkgMeshes([])
-                          setRefineSnippetId('')
-                        }}
+                  <form className="refine" onSubmit={onRefine}>
+                    <div className="refine-head">
+                      <h3>Refine</h3>
+                      <p className="muted">
+                        Iterate on current main.kcl. Optionally re-attach photos and/or a
+                        mesh for updated reference.
+                      </p>
+                    </div>
+                    <label>
+                      Snippet
+                      <select
+                        value={refineSnippetId}
+                        disabled={!canRefine}
+                        onChange={(e) => void applyRefineSnippet(e.target.value)}
                       >
-                        Remove
+                        <option value="">Custom instruction…</option>
+                        {refineSnippets.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.title}
+                            {s.attach || s.hasFiles ? ' (package)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Instruction
+                      <textarea
+                        value={refine}
+                        onChange={(e) =>
+                          setRefine(e.target.value.slice(0, REFINE_MAX))
+                        }
+                        rows={3}
+                        maxLength={REFINE_MAX}
+                        disabled={!canRefine}
+                        placeholder="e.g. Make the key-ring hole 4 mm and thicken the body to 3.5 mm"
+                      />
+                    </label>
+                    <div className="row refine-files">
+                      <label>
+                        Photos (optional)
+                        <input
+                          type="file"
+                          accept=".jpg,.jpeg,.png,.webp,.gif,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
+                          multiple
+                          disabled={!canRefine}
+                          onChange={(e) => setRefinePhotos(e.target.files)}
+                        />
+                      </label>
+                      <label>
+                        Meshes (optional)
+                        <input
+                          type="file"
+                          accept=".stl,.ply,.xyz,.txt,.obj,.3mf"
+                          multiple
+                          disabled={!canRefine}
+                          onChange={(e) => setRefineMeshes(e.target.files)}
+                        />
+                      </label>
+                    </div>
+                    {refinePkgPhotos.length || refinePkgMeshes.length ? (
+                      <div className="refine-package">
+                        <span className="refine-package-label">Package attachments</span>
+                        <div className="refine-package-chips">
+                          {refinePkgPhotos.map((f) => (
+                            <span
+                              key={`p-${f.name}`}
+                              className="attach-chip photo"
+                              title={f.name}
+                            >
+                              {f.name}
+                            </span>
+                          ))}
+                          {refinePkgMeshes.map((f) => (
+                            <span
+                              key={`m-${f.name}`}
+                              className="attach-chip mesh"
+                              title={f.name}
+                            >
+                              {f.name}
+                            </span>
+                          ))}
+                          <button
+                            type="button"
+                            className="linkish refine-package-clear"
+                            onClick={() => {
+                              setRefinePkgPhotos([])
+                              setRefinePkgMeshes([])
+                              setRefineSnippetId('')
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                    <p className={`hint ${refineLen > REFINE_MAX * 0.9 ? 'warn' : ''}`}>
+                      {refineHint}
+                      {refineAttachHint ? ` · attaching ${refineAttachHint}` : ''}
+                      {jobRunning
+                        ? ' · wait for the current run to finish (or cancel it)'
+                        : !hasKcl
+                          ? ' · needs main.kcl from a completed reconstruction'
+                          : ' · continues the Zoo conversation when possible'}
+                    </p>
+                    <div className="refine-actions">
+                      <button
+                        type="submit"
+                        className="primary"
+                        disabled={!canRefine || !refine.trim()}
+                      >
+                        Send refine
                       </button>
                     </div>
-                  </div>
-                ) : null}
-                <p className={`hint ${refineLen > REFINE_MAX * 0.9 ? 'warn' : ''}`}>
-                  {refineHint}
-                  {refineAttachHint ? ` · attaching ${refineAttachHint}` : ''}
-                  {jobRunning
-                    ? ' · wait for the current run to finish (or cancel it)'
-                    : !hasKcl
-                      ? ' · needs main.kcl from a completed reconstruction'
-                      : ' · continues the Zoo conversation when possible'}
-                </p>
-                <div className="refine-actions">
-                  <button
-                    type="submit"
-                    className="primary"
-                    disabled={!canRefine || !refine.trim()}
-                  >
-                    Send refine
-                  </button>
-                </div>
-              </form>
+                  </form>
 
-              <form className="refine finish" onSubmit={onApplyFinish}>
-                <div className="refine-head">
-                  <h3>Apply finish</h3>
-                  <p className="muted">
-                    Set a PBR surface look on the last solid via KCL{' '}
-                    <code>appearance()</code>, then re-export. No Agent call — opens Live
-                    Engine so you can judge the material.
-                  </p>
+                  <form className="refine finish" onSubmit={onApplyFinish}>
+                    <div className="refine-head">
+                      <h3>Apply finish</h3>
+                      <p className="muted">
+                        Set a PBR surface look on the last solid via KCL{' '}
+                        <code>appearance()</code>, then re-export. No Agent call — opens
+                        Live Engine so you can judge the material.
+                      </p>
+                    </div>
+                    <label>
+                      Finish
+                      <select
+                        value={finishId}
+                        onChange={(e) => setFinishId(e.target.value)}
+                        disabled={!canRefine || finishes.length === 0}
+                      >
+                        {finishes.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {selectedFinish ? (
+                      <div className="finish-preview">
+                        <span
+                          className="finish-swatch"
+                          style={{ background: selectedFinish.color }}
+                          aria-hidden
+                        />
+                        <p className="muted">
+                          {selectedFinish.description}. metalness{' '}
+                          {selectedFinish.metalness}, roughness{' '}
+                          {selectedFinish.roughness}
+                          {selectedFinish.opacity != null
+                            ? `, opacity ${selectedFinish.opacity}`
+                            : ''}
+                          .
+                        </p>
+                      </div>
+                    ) : null}
+                    <div className="refine-actions">
+                      <button
+                        type="submit"
+                        className="primary"
+                        disabled={!canRefine || !finishId || finishes.length === 0}
+                      >
+                        Apply finish
+                      </button>
+                    </div>
+                  </form>
                 </div>
-                <label>
-                  Finish
-                  <select
-                    value={finishId}
-                    onChange={(e) => setFinishId(e.target.value)}
-                    disabled={!canRefine || finishes.length === 0}
-                  >
-                    {finishes.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {f.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {selectedFinish ? (
-                  <div className="finish-preview">
-                    <span
-                      className="finish-swatch"
-                      style={{ background: selectedFinish.color }}
-                      aria-hidden
-                    />
-                    <p className="muted">
-                      {selectedFinish.description}. metalness {selectedFinish.metalness}
-                      , roughness {selectedFinish.roughness}
-                      {selectedFinish.opacity != null
-                        ? `, opacity ${selectedFinish.opacity}`
-                        : ''}
-                      .
-                    </p>
-                  </div>
-                ) : null}
-                <div className="refine-actions">
-                  <button
-                    type="submit"
-                    className="primary"
-                    disabled={!canRefine || !finishId || finishes.length === 0}
-                  >
-                    Apply finish
-                  </button>
-                </div>
-              </form>
+              ) : null}
             </section>
           ) : (
             <section className="panel detail empty-detail">
@@ -2313,7 +2540,11 @@ export default function App() {
                 <button
                   type="button"
                   className="primary"
-                  onClick={() => setCreateOpen(true)}
+                  onClick={() => {
+                    setCreateError(null)
+                    setCreatePane('upload')
+                    setCreateOpen(true)
+                  }}
                 >
                   New job
                 </button>
@@ -2352,101 +2583,139 @@ export default function App() {
                 Close
               </button>
             </div>
-            <form onSubmit={onCreate} className="create-form">
-              <div className="template-row">
-                <span className="muted">Prompt templates</span>
-                <div className="template-pills">
-                  {templates.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => applyTemplate(t)}
-                      title={t.prompt.slice(0, 120)}
-                    >
-                      {t.title}
-                      {t.builtin ? '' : ' ·'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <label>
-                Title
-                <input
-                  value={createTitle}
-                  onChange={(e) => setCreateTitle(e.target.value.slice(0, 80))}
-                  placeholder="e.g. Beverage holder stand"
-                  maxLength={80}
-                />
-              </label>
-              <label>
-                Prompt
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value.slice(0, PROMPT_MAX))}
-                  rows={4}
-                  required
-                  maxLength={PROMPT_MAX}
-                />
-                <span className={`hint ${promptLen > PROMPT_WARN ? 'warn' : ''}`}>
-                  {promptHint}
-                </span>
-              </label>
-              <div className="row">
-                <label>
-                  Agent mode
-                  <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                    {MODES.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Photos (JPG / PNG / WebP / HEIC)
-                  <input
-                    type="file"
-                    accept=".jpg,.jpeg,.png,.webp,.gif,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
-                    multiple
-                    onChange={(e) => setPhotos(e.target.files)}
-                  />
-                </label>
-                <label>
-                  Meshes (STL / PLY / OBJ / 3MF / XYZ)
-                  <input
-                    type="file"
-                    accept=".stl,.ply,.xyz,.txt,.obj,.3mf"
-                    multiple
-                    onChange={(e) => setMeshes(e.target.files)}
-                  />
-                </label>
-              </div>
-
-              {showLocalReference ? (
-                <div className="local-preview">
-                  <StlViewport
-                    url={localMeshUrl!}
-                    label="Reference preview"
-                    accent="var(--mesh-ref)"
-                  />
-                  <p className="muted">
-                    Preview of your selected mesh (first file). Updates as soon as you
-                    pick a file.
-                  </p>
-                </div>
-              ) : null}
-
-              {createError ? (
-                <div className="form-error" role="alert">
-                  {createError}
-                </div>
-              ) : null}
-
-              <button type="submit" className="primary" disabled={creating}>
-                {creating ? 'Starting…' : 'Start reconstruction'}
+            <div className="view-toggle" role="group" aria-label="Create job source">
+              <button
+                type="button"
+                className={createPane === 'upload' ? 'active' : ''}
+                onClick={() => setCreatePane('upload')}
+              >
+                Upload
               </button>
-            </form>
-            {demos.length ? (
+              <button
+                type="button"
+                className={createPane === 'demo' ? 'active' : ''}
+                onClick={() => setCreatePane('demo')}
+              >
+                Demo
+              </button>
+            </div>
+            {createPane === 'upload' ? (
+              <form onSubmit={onCreate} className="create-form">
+                <div className="template-row">
+                  <span className="muted">Prompt templates</span>
+                  <div className="template-pills">
+                    {templates.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => applyTemplate(t)}
+                        title={t.prompt.slice(0, 120)}
+                      >
+                        {t.title}
+                        {t.builtin ? null : <span className="tpl-custom">Custom</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label>
+                  Title
+                  <input
+                    value={createTitle}
+                    onChange={(e) => setCreateTitle(e.target.value.slice(0, 80))}
+                    placeholder="e.g. Beverage holder stand"
+                    maxLength={80}
+                  />
+                </label>
+                <label>
+                  Prompt
+                  <textarea
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value.slice(0, PROMPT_MAX))}
+                    rows={4}
+                    required
+                    maxLength={PROMPT_MAX}
+                  />
+                  <span className={`hint ${promptLen > PROMPT_WARN ? 'warn' : ''}`}>
+                    {promptHint}
+                  </span>
+                </label>
+                <div className="row">
+                  <label>
+                    Agent mode
+                    <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                      {MODES.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="create-inputs">
+                  <h3>Inputs</h3>
+                  <label>
+                    Photos (JPG / PNG / WebP / HEIC)
+                    <input
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.webp,.gif,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
+                      multiple
+                      onChange={(e) => setPhotos(e.target.files)}
+                    />
+                    {photos?.length ? (
+                      <div className="file-chips">
+                        {Array.from(photos).map((f) => (
+                          <span key={f.name} className="attach-chip photo" title={f.name}>
+                            {f.name}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </label>
+                  <label>
+                    Meshes (STL / PLY / OBJ / 3MF / XYZ)
+                    <input
+                      type="file"
+                      accept=".stl,.ply,.xyz,.txt,.obj,.3mf"
+                      multiple
+                      onChange={(e) => setMeshes(e.target.files)}
+                    />
+                    {meshes?.length ? (
+                      <div className="file-chips">
+                        {Array.from(meshes).map((f) => (
+                          <span key={f.name} className="attach-chip mesh" title={f.name}>
+                            {f.name}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </label>
+                </div>
+
+                {showLocalReference ? (
+                  <div className="local-preview">
+                    <StlViewport
+                      url={localMeshUrl!}
+                      label="Reference preview"
+                      accent="var(--mesh-ref)"
+                      compact
+                    />
+                    <p className="muted">
+                      STL preview (other formats convert on upload)
+                    </p>
+                  </div>
+                ) : null}
+
+                {createError ? (
+                  <div className="form-error" role="alert">
+                    {createError}
+                  </div>
+                ) : null}
+
+                <button type="submit" className="primary" disabled={creating}>
+                  {creating ? 'Starting…' : 'Start reconstruction'}
+                </button>
+              </form>
+            ) : demos.length ? (
               <div className="demos">
                 <h3>Demos</h3>
                 <div className="demo-list">
@@ -2475,8 +2744,52 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+                {createError ? (
+                  <div className="form-error" role="alert">
+                    {createError}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            ) : (
+              <p className="muted">No demos available.</p>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {deleteConfirmId ? (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDeleteConfirmId(null)
+          }}
+        >
+          <div
+            className="modal delete-confirm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-job-title"
+          >
+            <h2 id="delete-job-title">
+              Delete{' '}
+              {jobs.find((j) => j.id === deleteConfirmId)?.title ??
+                (job?.id === deleteConfirmId ? job.title : deleteConfirmId)}
+              ?
+            </h2>
+            <p className="muted">This removes the job and all its files.</p>
+            <div className="modal-actions">
+              <button type="button" onClick={() => setDeleteConfirmId(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => void confirmDeleteJob()}
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -2506,13 +2819,15 @@ export default function App() {
         onNewJob={() => {
           setJobsModalOpen(false)
           setCreateError(null)
+          setCreatePane('upload')
           setCreateOpen(true)
         }}
         onSelectJob={(id) => {
           setSelectedId(id)
           setJobsModalOpen(false)
+          setJobsDrawerOpen(false)
         }}
-        onDeleteJob={(id) => void onDeleteJob(id)}
+        onDeleteJob={(id) => onDeleteJob(id)}
         onRetryJob={(id) => {
           setJobsModalOpen(false)
           void onRetryJob(id)

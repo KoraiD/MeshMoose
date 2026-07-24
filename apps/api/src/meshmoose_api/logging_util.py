@@ -72,7 +72,7 @@ class JobLogger:
         ``emit`` writes one JSON object per non-empty line, so the already-seen
         prefix is skipped by counting lines — no ``json.loads`` until ``after``.
         """
-        events, _next = self.read_events_with_cursor(after)
+        events, _ = self.read_events_with_cursor(after)
         return events
 
     def read_events_with_cursor(self, after: int = 0) -> tuple[list[dict[str, Any]], int]:

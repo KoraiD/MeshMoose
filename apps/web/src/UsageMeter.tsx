@@ -45,6 +45,7 @@ export function UsageMeter({
   }, [refreshKey])
 
   const recent = usageState.usage?.recent_totals
+  const updatedLabel = formatUsageUpdatedAt(usageState.lastFetchedAt).toLowerCase()
 
   return (
     <div className={`usage-meter${compact ? ' compact' : ''}`}>
@@ -76,11 +77,14 @@ export function UsageMeter({
           </strong>
         </div>
       </div>
-      <p className="hint">
-        Zoo meters most billable work by the second. Recent sample is from your account
-        (last ~dozen calls), not this job alone. Updated{' '}
-        {formatUsageUpdatedAt(usageState.lastFetchedAt).toLowerCase()}.
-      </p>
+      <p className="hint usage-meter-updated">Updated {updatedLabel}.</p>
+      <details className="usage-meter-about">
+        <summary>About usage</summary>
+        <p className="hint">
+          Zoo meters most billable work by the second. Recent sample is from your account
+          (last ~dozen calls), not this job alone.
+        </p>
+      </details>
       {usageState.error ? (
         <p className="usage-meter-error">{usageState.error}</p>
       ) : null}
