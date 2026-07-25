@@ -72,6 +72,7 @@ def _slug(text: str, max_len: int = 48) -> str:
 MAX_TAGS = 5
 MAX_TAG_LEN = 24
 MAX_TITLE_LEN = 80
+KCL_HISTORY_MAX = 20
 
 
 def normalize_tags(tags: list[str] | None) -> list[str]:
@@ -211,14 +212,93 @@ class JobStore:
         prompts.append(entry)
         return self.update_meta(job_id, prompts=prompts)
 
+    def _kcl_history_dir(self, job_id: str) -> Path:
+        return self.paths(job_id).outputs / "kcl_history"
+
+    def _kcl_history_index_path(self, job_id: str) -> Path:
+        return self._kcl_history_dir(job_id) / "index.json"
+
+    def _read_kcl_history_index(self, job_id: str) -> list[dict[str, Any]]:
+        path = self._kcl_history_index_path(job_id)
+        if not path.is_file():
+            return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return []
+        return data if isinstance(data, list) else []
+
+    def _write_kcl_history_index(self, job_id: str, entries: list[dict[str, Any]]) -> None:
+        hist = self._kcl_history_dir(job_id)
+        hist.mkdir(parents=True, exist_ok=True)
+        path = self._kcl_history_index_path(job_id)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+        tmp.replace(path)
+
+    def _archive_current_kcl(
+        self,
+        job_id: str,
+        *,
+        note: str | None = None,
+    ) -> str | None:
+        """Copy current main.kcl into kcl_history/; return version id or None."""
+        kcl_path = self.paths(job_id).outputs / "main.kcl"
+        if not kcl_path.is_file():
+            return None
+        raw = kcl_path.read_bytes()
+        if not raw.strip():
+            return None
+        hist = self._kcl_history_dir(job_id)
+        hist.mkdir(parents=True, exist_ok=True)
+        stamp = utc_now().replace(":", "").replace(".", "")
+        # Compact id: 2026-07-25T18… → 20260725T18… + short suffix
+        stamp = re.sub(r"[^0-9TZ]", "", stamp)[:16]
+        version_id = f"{stamp}_{uuid.uuid4().hex[:8]}"
+        (hist / f"{version_id}.kcl").write_bytes(raw)
+        text = raw.decode("utf-8", errors="replace")
+        entry = {
+            "id": version_id,
+            "created_at": utc_now(),
+            "bytes": len(raw),
+            "chars": len(text),
+            "note": (note or "").strip() or None,
+        }
+        entries = [entry, *self._read_kcl_history_index(job_id)]
+        # Cap history; delete pruned files.
+        keep = entries[:KCL_HISTORY_MAX]
+        drop = entries[KCL_HISTORY_MAX:]
+        for old in drop:
+            old_id = old.get("id")
+            if isinstance(old_id, str):
+                doomed = hist / f"{old_id}.kcl"
+                if doomed.is_file():
+                    doomed.unlink()
+        self._write_kcl_history_index(job_id, keep)
+        return version_id
+
+    def list_kcl_versions(self, job_id: str) -> list[dict[str, Any]]:
+        _ = self.get(job_id)
+        return self._read_kcl_history_index(job_id)
+
+    def read_kcl_version(self, job_id: str, version_id: str) -> str:
+        _ = self.get(job_id)
+        if not re.fullmatch(r"[0-9A-Za-z_]+", version_id):
+            raise ValueError("Invalid version id")
+        path = self._kcl_history_dir(job_id) / f"{version_id}.kcl"
+        if not path.is_file():
+            raise FileNotFoundError(version_id)
+        return path.read_text(encoding="utf-8")
+
     def save_main_kcl(
         self,
         job_id: str,
         source: str,
         *,
         note: str | None = None,
+        history_note: str | None = None,
     ) -> dict[str, Any]:
-        """Write outputs/main.kcl, keep one previous snapshot, record prompt history."""
+        """Write outputs/main.kcl, archive previous into kcl_history/, record prompt history."""
         _ = self.get(job_id)  # KeyError if missing
         paths = self.paths(job_id)
         paths.outputs.mkdir(parents=True, exist_ok=True)
@@ -226,6 +306,7 @@ class JobStore:
         prev_path = paths.outputs / "main.prev.kcl"
         if kcl_path.is_file():
             prev_path.write_bytes(kcl_path.read_bytes())
+            self._archive_current_kcl(job_id, note=history_note or note)
         text = source.replace("\r\n", "\n")
         kcl_path.write_text(text, encoding="utf-8")
         label = (note or "").strip() or f"Manual KCL edit ({len(text)} chars)"
@@ -236,6 +317,22 @@ class JobStore:
             kind="kcl_edit",
         )
         return self.get(job_id, hydrate=True)
+
+    def restore_kcl_version(
+        self,
+        job_id: str,
+        version_id: str,
+        *,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        source = self.read_kcl_version(job_id, version_id)
+        label = (note or "").strip() or f"Restored KCL version {version_id}"
+        return self.save_main_kcl(
+            job_id,
+            source,
+            note=label,
+            history_note=f"Before restore of {version_id}",
+        )
 
     def ensure_prompt_history(self, job_id: str) -> dict[str, Any]:
         """Backfill prompts[] from meta.prompt + job.log refine lines (legacy jobs)."""

@@ -74,9 +74,9 @@ npm run dev
 - **Photos:** JPG / PNG / WebP / GIF / HEIC / HEIF (HEIC→JPEG, GIF→PNG for Zoo)
 - **Meshes:** STL / PLY / OBJ / 3MF / XYZ (normalized to STL for the Agent; XYZ → convex hull)
 - Compare: side-by-side or **before/after opacity overlay**; selectable reference mesh; **Align tools** (Align / heatmap / Reset) + optional **manual nudge**; download STL / STEP / **3MF**
-- Workbench: photos, filtered logs, assistant markdown, KCL (current / diff vs initial), metrics (volume mm³ / cm³ / in³), **active time** (pipeline run time only)
-- Iterate: prompt history, refine (text + optional photos/meshes or a saved snippet), **Apply finish** PBR presets (KCL `appearance`, no Agent call)
-- Live Engine: WebRTC preview — zoom / pan / rotate / scale, camera views, edges / x-ray / explode, snaps, selection, multi-format export (beyond job artifacts); **KCL editor** (edit draft, **Run** without reconnect, **Save** to `main.kcl` with one `main.prev.kcl` snapshot); open sessions listed in the Jobs modal after Start
+- Workbench: photos, filtered logs, assistant markdown, read-only KCL (current / diff vs initial), metrics (volume mm³ / cm³ / in³), **active time** (pipeline run time only)
+- Iterate: prompt history, **KCL versions** (restore archived edits), refine (text + optional photos/meshes or a saved snippet), **Apply finish** PBR presets (KCL `appearance`, no Agent call)
+- Live Engine: WebRTC preview — zoom / pan / rotate / scale, camera views, edges / x-ray / explode, snaps, selection, multi-format export (beyond job artifacts); **KCL editor** below the viewport (edit draft, **Run** without reconnect, **Save** with `kcl_history/` + optional mesh re-export); open sessions listed in the Jobs modal after Start
 - Engine export **retries** transient Zoo `EngineHangup` errors; job errors are sanitized for the UI
 - Offline **`meshmoose mesh corrupt`** to simulate incomplete scans for demos/tests
 - In-app **Documentation** + HTTP API + CLI
@@ -102,7 +102,8 @@ meshmoose demos run brick-wall --mode fast --wait
 meshmoose jobs create --prompt "Make a stand" --photo stand.jpg --mesh stand.stl \
   --title "Beverage stand" --tag stand --wait
 meshmoose jobs finish <job_id> --preset brushed-aluminum --wait
-meshmoose jobs save-kcl <job_id> --file ./main.kcl
+meshmoose jobs save-kcl <job_id> --file ./main.kcl --reexport --wait
+meshmoose jobs kcl-versions <job_id>
 meshmoose jobs retry <failed_job_id> --wait
 meshmoose jobs download <job_id> --out ./exports
 meshmoose mesh corrupt demos/beverage-holder-stand/lidl-jar-stand.stl \

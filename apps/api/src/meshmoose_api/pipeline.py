@@ -118,6 +118,60 @@ def run_job(store: JobStore, job_id: str, token: str) -> None:
         store.set_status(job_id, JobStatus.FAILED, error=nice)
 
 
+def reexport_job(store: JobStore, job_id: str, token: str, *, label: str = "Re-export") -> None:
+    """Export current main.kcl to STL/STEP/3MF and re-measure (no Agent)."""
+    log = store.logger(job_id)
+    paths = store.paths(job_id)
+    try:
+        if store.is_cancelled(job_id):
+            log.emit(f"{label} aborted (cancelled before start)", level="warn", kind="status")
+            return
+        kcl_path = paths.outputs / "main.kcl"
+        if not kcl_path.is_file():
+            raise RuntimeError("No main.kcl to export — run a successful job first")
+        main_kcl = kcl_path.read_text(encoding="utf-8")
+        store.set_status(job_id, JobStatus.EXPORTING)
+        log.emit(f"{label}: exporting main.kcl", kind="export")
+        export_kcl(
+            token=token,
+            main_kcl=main_kcl,
+            out_stl=paths.outputs / "generated.stl",
+            out_step=paths.outputs / "generated.step",
+            out_3mf=paths.outputs / "generated.3mf",
+            log=log,
+        )
+        if store.is_cancelled(job_id):
+            log.emit(f"{label} aborted after export (cancelled)", level="warn", kind="status")
+            return
+
+        ref = store.reference_path(job_id)
+        if ref.is_file():
+            store.set_status(job_id, JobStatus.MEASURING)
+            try:
+                compare_meshes(
+                    token=token,
+                    reference_stl=ref,
+                    generated_stl=paths.outputs / "generated.stl",
+                    out_json=paths.outputs / "metrics.json",
+                    log=log,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.emit(f"Measure step failed (non-fatal): {exc}", level="warn")
+
+        if store.is_cancelled(job_id):
+            log.emit(f"{label} aborted before success (cancelled)", level="warn", kind="status")
+            return
+        store.set_status(job_id, JobStatus.SUCCEEDED)
+        log.emit(f"{label} succeeded", kind="status", status="succeeded")
+    except Exception as exc:  # noqa: BLE001
+        if store.is_cancelled(job_id):
+            log.emit(f"{label} stopped after cancel: {exc}", level="warn", kind="error")
+            return
+        nice = format_job_error(exc)
+        log.emit(nice, level="error", kind="error")
+        store.set_status(job_id, JobStatus.FAILED, error=nice)
+
+
 def apply_finish_job(store: JobStore, job_id: str, token: str, preset_id: str) -> None:
     """Patch main.kcl with appearance() for a preset, then re-export (no Agent)."""
     log = store.logger(job_id)
@@ -148,38 +202,7 @@ def apply_finish_job(store: JobStore, job_id: str, token: str, preset_id: str) -
         # Prompt history is appended in the HTTP handler so the response includes it.
 
         log.emit(f"Applied finish preset '{preset.id}' ({preset.name})", kind="finish")
-        store.set_status(job_id, JobStatus.EXPORTING)
-        export_kcl(
-            token=token,
-            main_kcl=new_kcl,
-            out_stl=paths.outputs / "generated.stl",
-            out_step=paths.outputs / "generated.step",
-            out_3mf=paths.outputs / "generated.3mf",
-            log=log,
-        )
-        if store.is_cancelled(job_id):
-            log.emit("Finish aborted after export (cancelled)", level="warn", kind="status")
-            return
-
-        ref = store.reference_path(job_id)
-        if ref.is_file():
-            store.set_status(job_id, JobStatus.MEASURING)
-            try:
-                compare_meshes(
-                    token=token,
-                    reference_stl=ref,
-                    generated_stl=paths.outputs / "generated.stl",
-                    out_json=paths.outputs / "metrics.json",
-                    log=log,
-                )
-            except Exception as exc:  # noqa: BLE001
-                log.emit(f"Measure step failed (non-fatal): {exc}", level="warn")
-
-        if store.is_cancelled(job_id):
-            log.emit("Finish aborted before success (cancelled)", level="warn", kind="status")
-            return
-        store.set_status(job_id, JobStatus.SUCCEEDED)
-        log.emit("Finish succeeded", kind="status", status="succeeded")
+        reexport_job(store, job_id, token, label="Finish export")
     except Exception as exc:  # noqa: BLE001
         if store.is_cancelled(job_id):
             log.emit(f"Finish stopped after cancel: {exc}", level="warn", kind="error")

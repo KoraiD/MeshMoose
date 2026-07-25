@@ -249,11 +249,30 @@ class MeshMooseClient:
         kcl: str,
         *,
         note: str | None = None,
+        reexport: bool = False,
     ) -> dict[str, Any]:
-        body: dict[str, Any] = {"kcl": kcl}
+        body: dict[str, Any] = {"kcl": kcl, "reexport": reexport}
         if note is not None:
             body["note"] = note
         return self._request("PUT", f"/jobs/{quote(job_id)}/kcl", json=body)
+
+    def list_kcl_versions(self, job_id: str) -> list[dict[str, Any]]:
+        data = self._request("GET", f"/jobs/{quote(job_id)}/kcl/versions")
+        versions = data.get("versions") if isinstance(data, dict) else None
+        return versions if isinstance(versions, list) else []
+
+    def restore_kcl(
+        self,
+        job_id: str,
+        version_id: str,
+        *,
+        note: str | None = None,
+        reexport: bool = False,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"version_id": version_id, "reexport": reexport}
+        if note is not None:
+            body["note"] = note
+        return self._request("POST", f"/jobs/{quote(job_id)}/kcl/restore", json=body)
 
     def wait_job(
         self,

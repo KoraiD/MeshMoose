@@ -21,6 +21,8 @@ import {
   demoAssetUrl,
   getReference,
   setReference,
+  listKclVersions,
+  restoreKclVersion,
   type AlignResult,
   type Artifact,
   type Demo,
@@ -28,6 +30,7 @@ import {
   type FinishPreset,
   type Job,
   type JobEvent,
+  type KclVersion,
   type PromptEntry,
 } from './api'
 import { appLog } from './appLog'
@@ -132,6 +135,21 @@ function formatPromptTime(iso: string): string {
     })
   } catch {
     return iso
+  }
+}
+
+function formatPromptRole(role: string): string {
+  switch (role) {
+    case 'initial':
+      return 'Initial'
+    case 'refine':
+      return 'Refine'
+    case 'finish':
+      return 'Finish'
+    case 'edit':
+      return 'Manual edit'
+    default:
+      return role
   }
 }
 
@@ -303,6 +321,11 @@ export default function App() {
   >('all')
   const [detailTab, setDetailTab] = useState<DetailTab>('compare')
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [kclVersionsOpen, setKclVersionsOpen] = useState(true)
+  const [kclVersions, setKclVersions] = useState<KclVersion[]>([])
+  const [kclVersionsBusy, setKclVersionsBusy] = useState(false)
+  const [kclRestoreId, setKclRestoreId] = useState<string | null>(null)
+  const [kclRestoreReexport, setKclRestoreReexport] = useState(false)
   const [engineOn, setEngineOn] = useState(false)
   const [metricsView, setMetricsView] = useState<'json' | 'table'>('json')
   const [nowTick, setNowTick] = useState(() => Date.now())
@@ -640,7 +663,32 @@ export default function App() {
     setHeatmapOn(false)
     setNudge({ translate: [0, 0, 0], rotateDeg: [0, 0, 0], scale: 1 })
     setReferenceInfo(null)
+    setKclVersions([])
+    setKclRestoreId(null)
   }, [selectedId])
+
+  useEffect(() => {
+    if (!job?.id || !getApiToken()) {
+      setKclVersions([])
+      return
+    }
+    if (detailTab !== 'iterate' && detailTab !== 'engine') return
+    let active = true
+    setKclVersionsBusy(true)
+    void listKclVersions(job.id)
+      .then((versions) => {
+        if (active) setKclVersions(versions)
+      })
+      .catch(() => {
+        if (active) setKclVersions([])
+      })
+      .finally(() => {
+        if (active) setKclVersionsBusy(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [job?.id, job?.updated_at, detailTab])
 
   useEffect(() => {
     if (!createOpen) return
@@ -977,6 +1025,36 @@ export default function App() {
     }
     setRefinePkgPhotos([])
     setRefinePkgMeshes([])
+  }
+
+  async function onRestoreKclVersion(versionId: string) {
+    if (!job) return
+    const running = ['queued', 'preprocessing', 'agent_running', 'exporting', 'measuring']
+    if (running.includes(job.status)) {
+      reportError('Wait for the current job run to finish before restoring KCL.')
+      return
+    }
+    setKclRestoreId(versionId)
+    setError(null)
+    try {
+      const result = await restoreKclVersion(job.id, versionId, {
+        reexport: kclRestoreReexport,
+      })
+      setKcl(result.kcl)
+      setJob(result.job)
+      setKclVersions(await listKclVersions(job.id).catch(() => kclVersions))
+      showToast(
+        kclRestoreReexport
+          ? 'Restored KCL — re-exporting meshes…'
+          : 'Restored KCL version',
+      )
+      appLog(`Restored KCL version ${versionId.slice(-8)}`)
+      if (kclRestoreReexport) setDetailTab('compare')
+    } catch (err) {
+      reportError((err as Error).message)
+    } finally {
+      setKclRestoreId(null)
+    }
   }
 
   async function onRefine(e: FormEvent) {
@@ -2011,6 +2089,9 @@ export default function App() {
                       onKclSaved={(text, updated) => {
                         setKcl(text)
                         setJob(updated)
+                        void listKclVersions(updated.id)
+                          .then(setKclVersions)
+                          .catch(() => undefined)
                       }}
                     />
                   </Suspense>
@@ -2384,7 +2465,9 @@ export default function App() {
                               className="prompt-item"
                             >
                               <div className="prompt-meta">
-                                <span className="prompt-role">{entry.role}</span>
+                                <span className="prompt-role">
+                                  {formatPromptRole(entry.role)}
+                                </span>
                                 {entry.mode ? <span>{entry.mode}</span> : null}
                                 <span>{formatPromptTime(entry.created_at)}</span>
                                 <span>{entry.text.length} chars</span>
@@ -2395,6 +2478,81 @@ export default function App() {
                         </ol>
                       ) : (
                         <p className="muted">No prompts recorded for this job yet.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="kcl-versions">
+                    <button
+                      type="button"
+                      className={`section-toggle${kclVersionsOpen ? ' open' : ''}`}
+                      onClick={() => setKclVersionsOpen((v) => !v)}
+                      aria-expanded={kclVersionsOpen}
+                      aria-controls="kcl-versions-panel"
+                    >
+                      <span className="section-toggle-label">
+                        <span className="section-toggle-chevron" aria-hidden="true">
+                          {kclVersionsOpen ? '▾' : '▸'}
+                        </span>
+                        <span
+                          className="section-toggle-title"
+                          role="heading"
+                          aria-level={3}
+                        >
+                          KCL versions
+                        </span>
+                      </span>
+                      <span className="section-toggle-meta">
+                        {kclVersionsBusy
+                          ? 'Loading…'
+                          : kclVersionsOpen
+                            ? 'Hide'
+                            : kclVersions.length === 0
+                              ? 'Empty · show'
+                              : `Show · ${kclVersions.length}`}
+                      </span>
+                    </button>
+                    <div id="kcl-versions-panel" hidden={!kclVersionsOpen}>
+                      <p className="hint kcl-versions-hint">
+                        Snapshots taken automatically before each Save / Restore from the Live
+                        Engine editor (up to 20). Restoring writes the version back to{' '}
+                        <code>main.kcl</code>.
+                      </p>
+                      <label className="kcl-versions-reexport">
+                        <input
+                          type="checkbox"
+                          checked={kclRestoreReexport}
+                          onChange={(e) => setKclRestoreReexport(e.target.checked)}
+                          disabled={Boolean(kclRestoreId)}
+                        />
+                        Re-export meshes after restore (Compare)
+                      </label>
+                      {kclVersions.length ? (
+                        <ul className="kcl-version-list">
+                          {kclVersions.map((v) => (
+                            <li key={v.id} className="kcl-version-item">
+                              <div className="kcl-version-meta">
+                                <code className="kcl-version-id">{v.id}</code>
+                                <span>{formatPromptTime(v.created_at)}</span>
+                                <span>{v.chars} chars</span>
+                                {v.note ? <span className="muted">{v.note}</span> : null}
+                              </div>
+                              <button
+                                type="button"
+                                disabled={Boolean(kclRestoreId) || !canRefine}
+                                onClick={() => void onRestoreKclVersion(v.id)}
+                              >
+                                {kclRestoreId === v.id ? 'Restoring…' : 'Restore'}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="muted">
+                          {kclVersionsBusy
+                            ? 'Loading versions…'
+                            : 'No archived versions yet — save an edit from Live engine.'}
+                        </p>
                       )}
                     </div>
                   </div>

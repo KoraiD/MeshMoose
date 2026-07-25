@@ -16,8 +16,8 @@ Or `npm run dev` from the repo root (API + web). Open http://127.0.0.1:5173 — 
 - New job: templates, modes (`thoughtful` / `fast` / `auto`), multi photo (incl. HEIC/GIF conversion) + mesh (STL/PLY/OBJ/3MF/XYZ), demos, local STL preview
 - Jobs list + Jobs modal: filters, live Engine sessions, status polling while runs are active
 - Compare: side-by-side or opacity overlay; selectable reference; Align tools + optional manual nudge; STL / STEP / 3MF download
-- Live Engine: Zoo WebRTC — zoom / pan / rotate / scale, views, edges / x-ray / explode, export, snaps; KCL editor (Run without reconnect, Save + `main.prev.kcl`)
-- Workbench: photos, logs, assistant, KCL (+ diff), metrics, active time
-- Iterate: prompt history, refine (+ snippets), Apply finish presets; rename / tags
+- Live Engine: Zoo WebRTC — zoom / pan / rotate / scale, views, edges / x-ray / explode, export, snaps; KCL editor below viewport (Run, Save + history, optional re-export)
+- Workbench: photos, logs, assistant, read-only KCL (+ diff), metrics, active time
+- Iterate: prompt history, KCL version restore, refine (+ snippets), Apply finish presets; rename / tags
 
 See the [root README](../../README.md) and [docs/](../../docs/).

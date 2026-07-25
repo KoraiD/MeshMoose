@@ -153,6 +153,7 @@ export function ZooEngineView({
   const [saveBusy, setSaveBusy] = useState(false)
   const [runBusy, setRunBusy] = useState(false)
   const [editorOpen, setEditorOpen] = useState(true)
+  const [reexportOnSave, setReexportOnSave] = useState(false)
 
   const [status, setStatus] = useState('Idle')
   const [error, setError] = useState<string | null>(null)
@@ -623,11 +624,19 @@ export function ZooEngineView({
     setSaveBusy(true)
     setError(null)
     try {
-      const result = await saveJobKcl(jobId, source)
+      const result = await saveJobKcl(jobId, source, { reexport: reexportOnSave })
       onKclSaved?.(result.kcl, result.job)
       setDraft(result.kcl)
-      setBusyNote('Saved main.kcl (previous kept as main.prev.kcl)')
-      appLog('Saved main.kcl from Live Engine editor')
+      setBusyNote(
+        reexportOnSave
+          ? 'Saved main.kcl — re-exporting meshes for Compare…'
+          : 'Saved main.kcl (previous archived in kcl_history/)',
+      )
+      appLog(
+        reexportOnSave
+          ? 'Saved main.kcl and queued re-export'
+          : 'Saved main.kcl from Live Engine editor',
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -1569,11 +1578,21 @@ export function ZooEngineView({
               >
                 Download
               </button>
+              <label className="engine-reexport-toggle">
+                <input
+                  type="checkbox"
+                  checked={reexportOnSave}
+                  onChange={(e) => setReexportOnSave(e.target.checked)}
+                  disabled={saveBusy}
+                />
+                Also re-export meshes (Compare)
+              </label>
             </div>
             <p className="hint engine-editor-hint">
               Run executes the draft in the live session (no reconnect). Save writes{' '}
-              <code>main.kcl</code> and keeps one previous snapshot as{' '}
-              <code>main.prev.kcl</code> (does not re-export STL/STEP).
+              <code>main.kcl</code>, archives the previous file under{' '}
+              <code>kcl_history/</code>, and optionally re-exports STL/STEP/3MF for Compare
+              (uses Engine minutes). Restore older versions from the Iterate tab.
             </p>
             <KclEditor value={draft} onChange={setDraft} ariaLabel="main.kcl editor" />
           </div>

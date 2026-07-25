@@ -75,7 +75,7 @@ _meshmoose() {
     cmds="health usage demos jobs mesh completion"
     case "${COMP_WORDS[1]}" in
         demos) COMPREPLY=( $(compgen -W "list run" -- "$cur") ) ;;
-        jobs)  COMPREPLY=( $(compgen -W "list get create wait cancel retry delete rename logs refine finish save-kcl artifacts download" -- "$cur") ) ;;
+        jobs)  COMPREPLY=( $(compgen -W "list get create wait cancel retry delete rename logs refine finish save-kcl kcl-versions kcl-restore artifacts download" -- "$cur") ) ;;
         mesh)  COMPREPLY=( $(compgen -W "corrupt" -- "$cur") ) ;;
         completion) COMPREPLY=( $(compgen -W "bash zsh" -- "$cur") ) ;;
         *)     COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
@@ -96,7 +96,7 @@ _meshmoose() {
     fi
     case "${words[2]}" in
         demos) compadd list run ;;
-        jobs)  compadd list get create wait cancel retry delete rename logs refine finish save-kcl artifacts download ;;
+        jobs)  compadd list get create wait cancel retry delete rename logs refine finish save-kcl kcl-versions kcl-restore artifacts download ;;
         mesh)  compadd corrupt ;;
         completion) compadd bash zsh ;;
     esac
@@ -354,8 +354,64 @@ def cmd_jobs_save_kcl(args: argparse.Namespace) -> int:
         return 2
     source = path.read_text(encoding="utf-8")
     with _client_from_args(args) as client:
-        result = client.save_kcl(args.job_id, source, note=args.note)
+        result = client.save_kcl(
+            args.job_id,
+            source,
+            note=args.note,
+            reexport=bool(args.reexport),
+        )
+        job = result.get("job") if isinstance(result, dict) else None
+        print(f"job_id: {args.job_id}", flush=True)
+        if args.reexport and args.wait and isinstance(job, dict):
+            job = client.wait_job(
+                args.job_id,
+                timeout=args.timeout,
+                on_status=lambda status, _meta: print(f"status: {status}", flush=True),
+            )
+            result = {**result, "job": job}
         _print(result, as_json=True)
+        if isinstance(job, dict) and job.get("status") == "failed":
+            return 1
+        return 0
+
+
+def cmd_jobs_kcl_versions(args: argparse.Namespace) -> int:
+    with _client_from_args(args) as client:
+        versions = client.list_kcl_versions(args.job_id)
+        if args.json:
+            _print(versions, as_json=True)
+        else:
+            if not versions:
+                print("(no KCL versions)")
+            for v in versions:
+                note = v.get("note") or ""
+                print(
+                    f"{v.get('id')}\t{v.get('created_at')}\t"
+                    f"{v.get('chars')} chars\t{note}".rstrip()
+                )
+        return 0
+
+
+def cmd_jobs_kcl_restore(args: argparse.Namespace) -> int:
+    with _client_from_args(args) as client:
+        result = client.restore_kcl(
+            args.job_id,
+            args.version_id,
+            note=args.note,
+            reexport=bool(args.reexport),
+        )
+        job = result.get("job") if isinstance(result, dict) else None
+        print(f"job_id: {args.job_id}", flush=True)
+        if args.reexport and args.wait and isinstance(job, dict):
+            job = client.wait_job(
+                args.job_id,
+                timeout=args.timeout,
+                on_status=lambda status, _meta: print(f"status: {status}", flush=True),
+            )
+            result = {**result, "job": job}
+        _print(result, as_json=True)
+        if isinstance(job, dict) and job.get("status") == "failed":
+            return 1
         return 0
 
 
@@ -681,13 +737,47 @@ def build_parser() -> argparse.ArgumentParser:
     j_save_kcl = jobs_sub.add_parser(
         "save-kcl",
         parents=[shared],
-        help="Save edited main.kcl (keeps one previous snapshot)",
-        epilog="Example: meshmoose jobs save-kcl JOB_ID --file ./main.kcl",
+        help="Save edited main.kcl (archives previous into kcl_history/)",
+        epilog="Example: meshmoose jobs save-kcl JOB_ID --file ./main.kcl --reexport --wait",
     )
     j_save_kcl.add_argument("job_id")
     j_save_kcl.add_argument("--file", required=True, help="Path to .kcl source")
     j_save_kcl.add_argument("--note", default=None, help="Optional history note")
+    j_save_kcl.add_argument(
+        "--reexport",
+        action="store_true",
+        help="Re-export STL/STEP/3MF after save (uses Engine minutes)",
+    )
+    j_save_kcl.add_argument("--wait", action="store_true", help="Wait when --reexport")
+    j_save_kcl.add_argument("--timeout", type=float, default=900.0)
     j_save_kcl.set_defaults(func=cmd_jobs_save_kcl)
+
+    j_kcl_versions = jobs_sub.add_parser(
+        "kcl-versions",
+        parents=[shared],
+        help="List archived main.kcl versions",
+        epilog="Example: meshmoose jobs kcl-versions JOB_ID",
+    )
+    j_kcl_versions.add_argument("job_id")
+    j_kcl_versions.set_defaults(func=cmd_jobs_kcl_versions)
+
+    j_kcl_restore = jobs_sub.add_parser(
+        "kcl-restore",
+        parents=[shared],
+        help="Restore an archived main.kcl version",
+        epilog="Example: meshmoose jobs kcl-restore JOB_ID VERSION_ID --reexport --wait",
+    )
+    j_kcl_restore.add_argument("job_id")
+    j_kcl_restore.add_argument("version_id")
+    j_kcl_restore.add_argument("--note", default=None, help="Optional history note")
+    j_kcl_restore.add_argument(
+        "--reexport",
+        action="store_true",
+        help="Re-export STL/STEP/3MF after restore",
+    )
+    j_kcl_restore.add_argument("--wait", action="store_true", help="Wait when --reexport")
+    j_kcl_restore.add_argument("--timeout", type=float, default=900.0)
+    j_kcl_restore.set_defaults(func=cmd_jobs_kcl_restore)
 
     j_arts = jobs_sub.add_parser(
         "artifacts",

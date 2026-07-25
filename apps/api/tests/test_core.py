@@ -399,7 +399,7 @@ def test_save_kcl_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from fastapi.testclient import TestClient
 
     import meshmoose_api.main as main_mod
-    from meshmoose_api.jobs import JobStore as LiveStore
+    from meshmoose_api.jobs import JobStatus, JobStore as LiveStore
 
     main_mod.store = LiveStore(tmp_path / "jobs")
     client = TestClient(main_mod.app)
@@ -418,13 +418,44 @@ def test_save_kcl_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert res.status_code == 200
     body = res.json()
     assert body["kcl"] == "part = 2\n"
+    assert body["reexport"] is False
     assert body["job"]["status"] == "succeeded"
     assert any(p.get("role") == "edit" for p in body["job"].get("prompts") or [])
     assert kcl_path.read_text(encoding="utf-8") == "part = 2\n"
     prev = main_mod.store.paths(job_id).outputs / "main.prev.kcl"
     assert prev.read_text(encoding="utf-8") == "part = 1\n"
 
-    from meshmoose_api.jobs import JobStatus
+    versions = client.get(f"/jobs/{job_id}/kcl/versions", headers=headers)
+    assert versions.status_code == 200
+    vlist = versions.json()["versions"]
+    assert len(vlist) == 1
+    assert vlist[0]["chars"] == len("part = 1\n")
+    version_id = vlist[0]["id"]
+
+    restored = client.post(
+        f"/jobs/{job_id}/kcl/restore",
+        headers=headers,
+        json={"version_id": version_id},
+    )
+    assert restored.status_code == 200
+    assert restored.json()["kcl"] == "part = 1\n"
+    assert kcl_path.read_text(encoding="utf-8") == "part = 1\n"
+    # Restoring archives the overwritten "part = 2" as another history entry.
+    assert len(client.get(f"/jobs/{job_id}/kcl/versions", headers=headers).json()["versions"]) == 2
+
+    def noop_reexport(**_kwargs):
+        return None
+
+    monkeypatch.setattr("meshmoose_api.main.reexport_job", noop_reexport)
+    with client:
+        queued = client.put(
+            f"/jobs/{job_id}/kcl",
+            headers=headers,
+            json={"kcl": "part = 9\n", "reexport": True},
+        )
+    assert queued.status_code == 200
+    assert queued.json()["reexport"] is True
+    assert queued.json()["job"]["status"] == "exporting"
 
     main_mod.store.set_status(job_id, JobStatus.EXPORTING)
     busy = client.put(

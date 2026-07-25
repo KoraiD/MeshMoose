@@ -385,6 +385,8 @@ def test_openapi_docs_available(api_app):
         assert "/finishes" in paths
         assert "/jobs/{job_id}/finish" in paths
         assert "/jobs/{job_id}/kcl" in paths
+        assert "/jobs/{job_id}/kcl/versions" in paths
+        assert "/jobs/{job_id}/kcl/restore" in paths
         assert "/demos" in paths
         assert spec["info"]["title"] == "MeshMoose.ai API"
 

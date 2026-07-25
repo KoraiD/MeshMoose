@@ -39,7 +39,9 @@ The API forwards this token to Zoo and **does not** persist it. Public routes: `
 | `GET` | `/jobs/{id}/reference` | yes | Active Compare reference + available mesh sources |
 | `PUT` | `/jobs/{id}/reference` | yes | Set Compare reference (`{ "source": "inputs/…" \| "outputs/reference.stl" }`) |
 | `POST` | `/jobs/{id}/align` | yes | ICP-align generated onto reference; returns transform + deviation stats/heatmap data |
-| `PUT` | `/jobs/{id}/kcl` | yes | Save edited `main.kcl` (`{ "kcl", "note"? }`); keeps previous as `main.prev.kcl`; no re-export |
+| `PUT` | `/jobs/{id}/kcl` | yes | Save edited `main.kcl` (`{ "kcl", "note"?, "reexport"? }`); archives previous into `kcl_history/`; optional mesh re-export |
+| `GET` | `/jobs/{id}/kcl/versions` | yes | List archived KCL versions (newest first) |
+| `POST` | `/jobs/{id}/kcl/restore` | yes | Restore a version (`{ "version_id", "note"?, "reexport"? }`) |
 | `GET` | `/jobs/{id}/artifacts` | yes | Artifact index |
 | `GET` | `/jobs/{id}/files/{path}` | yes | Download an artifact file |
 | `GET` | `/zoo/usage` | yes | Zoo credits + recent calls (sanitized) |
@@ -93,10 +95,20 @@ curl -sS -X POST "http://127.0.0.1:8787/jobs/$JOB_ID/finish" \
 curl -sS -X PUT "http://127.0.0.1:8787/jobs/$JOB_ID/kcl" \
   -H "Authorization: Bearer $ZOO_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"kcl":"part = startSketchOn(XY)\n  |> circle(center = [0, 0], radius = 5)\n  |> extrude(length = 2)\n","note":"thicker extrude"}'
+  -d '{"kcl":"part = startSketchOn(XY)\n  |> circle(center = [0, 0], radius = 5)\n  |> extrude(length = 2)\n","note":"thicker extrude","reexport":false}'
 ```
 
-Writes `outputs/main.kcl`, keeps the previous file as `outputs/main.prev.kcl`, and appends a prompt-history `edit` entry. Does **not** re-export meshes.
+Writes `outputs/main.kcl`, copies the previous file to `outputs/main.prev.kcl` and `outputs/kcl_history/<id>.kcl` (index capped at 20), and appends a prompt-history `edit` entry. Set `"reexport": true` to queue STL/STEP/3MF export + measure (job enters `exporting`).
+
+```bash
+curl -sS "http://127.0.0.1:8787/jobs/$JOB_ID/kcl/versions" \
+  -H "Authorization: Bearer $ZOO_API_TOKEN"
+
+curl -sS -X POST "http://127.0.0.1:8787/jobs/$JOB_ID/kcl/restore" \
+  -H "Authorization: Bearer $ZOO_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"version_id":"VERSION_ID","reexport":true}'
+```
 
 ## Align meshes
 

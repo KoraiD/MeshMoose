@@ -62,7 +62,9 @@ Per-job directory under `data/jobs/<id>/` (gitignored):
 meta.json          title, tags[], prompts[], status, active_ms, run_started_at, …
 events.jsonl
 inputs/            photos + meshes
-outputs/           reference.stl, main.kcl, main.initial.kcl, main.prev.kcl (last manual save), generated.stl/.step/.3mf, metrics.json, job.log, agent_*.jpeg
+outputs/           reference.stl, main.kcl, main.initial.kcl, main.prev.kcl,
+                   kcl_history/<id>.kcl + index.json (up to 20),
+                   generated.stl/.step/.3mf, metrics.json, job.log, agent_*.jpeg
 ```
 
 `meta.prompts[]` records the initial prompt, each refine message, finish applications, and manual KCL edits (`role: "edit"`). Jobs without `prompts[]` are hydrated from `job.log` when loaded.
@@ -111,12 +113,18 @@ The UI can attach a **custom refine snippet** (text + optional stored photos/mes
 
 The web UI mounts `@kittycad/web-view` (`ZooWebView`) against the user’s Bearer token to WebRTC-stream the Zoo Engine executing KCL. After `ready`, MeshMoose sends modeling commands for zoom / pan / rotate / scale, camera presets, edge visibility, x-ray, explode, `export3d`, PNG snapshots, click selection, and touch gestures. Mesh compare (Three.js) remains the default offline view; live engine is opt-in (uses API minutes). Open sessions are registered in-memory **after Start** so the Jobs modal can stop them. WASM is copied to `apps/web/public/` via `npm postinstall` (`scripts/copy-wasm.mjs`).
 
-The Live Engine tab also includes a CodeMirror **KCL editor** over a local draft of `main.kcl`:
+The Live Engine tab includes a CodeMirror **KCL editor** stacked below the WebRTC viewport, editing a local draft of `main.kcl`:
 
 - **Run** — `executor.submit(draft)` on the existing RTC session (no reconnect on each edit).
-- **Save** — `PUT /jobs/{id}/kcl` writes `outputs/main.kcl`, keeps one previous snapshot as `outputs/main.prev.kcl`, and appends a prompt-history `edit` entry. Phase 1 does **not** re-export STL/STEP/3MF (Compare artifacts stay until refine/finish/export).
+- **Save** — `PUT /jobs/{id}/kcl` writes `outputs/main.kcl`, archives the previous file into `outputs/kcl_history/`, updates `main.prev.kcl`, and appends a prompt-history `edit` entry. Optional **Also re-export meshes** queues STL/STEP/3MF + measure (same path as finish export).
 - **Discard** — resets the draft to the committed file on disk.
 
-## Manual KCL save
+The **Iterate** tab lists archived versions (`GET /jobs/{id}/kcl/versions`) with **Restore** (`POST /jobs/{id}/kcl/restore`) and an optional re-export checkbox. Workbench `main.kcl` stays read-only (committed view / diff).
 
-`PUT /jobs/{id}/kcl` with `{ "kcl": "…", "note"?: "…" }`. Rejected while the job is running. Same behavior as `meshmoose jobs save-kcl`.
+## Manual KCL save / restore
+
+- `PUT /jobs/{id}/kcl` — `{ "kcl", "note"?, "reexport"? }`
+- `GET /jobs/{id}/kcl/versions` — newest-first archive list
+- `POST /jobs/{id}/kcl/restore` — `{ "version_id", "note"?, "reexport"? }`
+
+Rejected while the job is running. CLI: `meshmoose jobs save-kcl` / `kcl-versions` / `kcl-restore`.

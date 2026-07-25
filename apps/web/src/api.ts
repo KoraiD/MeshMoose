@@ -286,12 +286,21 @@ export async function patchJob(
 export type SaveKclResult = {
   job: Job
   kcl: string
+  reexport?: boolean
+}
+
+export type KclVersion = {
+  id: string
+  created_at: string
+  bytes: number
+  chars: number
+  note?: string | null
 }
 
 export async function saveJobKcl(
   id: string,
   kcl: string,
-  note?: string,
+  opts?: { note?: string; reexport?: boolean },
 ): Promise<SaveKclResult> {
   const res = await fetch(`${BASE}/jobs/${id}/kcl`, {
     method: 'PUT',
@@ -299,7 +308,41 @@ export async function saveJobKcl(
       ...authHeaders(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ kcl, ...(note ? { note } : {}) }),
+    body: JSON.stringify({
+      kcl,
+      reexport: Boolean(opts?.reexport),
+      ...(opts?.note ? { note: opts.note } : {}),
+    }),
+  })
+  if (!res.ok) throw new Error(await errDetail(res))
+  return res.json()
+}
+
+export async function listKclVersions(id: string): Promise<KclVersion[]> {
+  const res = await fetch(`${BASE}/jobs/${id}/kcl/versions`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(await errDetail(res))
+  const data = (await res.json()) as { versions?: KclVersion[] }
+  return data.versions ?? []
+}
+
+export async function restoreKclVersion(
+  id: string,
+  versionId: string,
+  opts?: { note?: string; reexport?: boolean },
+): Promise<SaveKclResult> {
+  const res = await fetch(`${BASE}/jobs/${id}/kcl/restore`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      version_id: versionId,
+      reexport: Boolean(opts?.reexport),
+      ...(opts?.note ? { note: opts.note } : {}),
+    }),
   })
   if (!res.ok) throw new Error(await errDetail(res))
   return res.json()
