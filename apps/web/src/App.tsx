@@ -1708,7 +1708,12 @@ export default function App() {
                           type="button"
                           className={`viewport-btn${compareAlignOpen ? ' active' : ''}`}
                           aria-expanded={compareAlignOpen}
-                          onClick={() => setCompareAlignOpen((v) => !v)}
+                          onClick={() =>
+                            setCompareAlignOpen((v) => {
+                              if (v) setCompareNudgeOpen(false)
+                              return !v
+                            })
+                          }
                           title={
                             compareAlignOpen
                               ? 'Hide align tools'
@@ -1785,7 +1790,10 @@ export default function App() {
                         ) : null}
                       </div>
                     ) : null}
-                    {compareMode === 'overlay' && alignResult ? (
+                    {compareMode === 'overlay' &&
+                    showJobReference &&
+                    hasGenerated &&
+                    compareAlignOpen ? (
                       <div className="nudge-controls">
                         <button
                           type="button"
