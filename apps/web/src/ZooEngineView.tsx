@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { hexToRgb01, parseLastAppearance } from './appearance'
-import { getApiToken } from './api'
+import { getApiToken, saveJobKcl, type Job } from './api'
 import { appLog } from './appLog'
+import { KclEditor } from './KclEditor'
 import {
   IconCamera,
   IconCode,
@@ -67,6 +68,15 @@ type Props = {
   onCopyKcl?: () => void
   onDownloadKcl?: () => void
   onSessionSeconds?: (seconds: number) => void
+  /** Called after a successful Save so the app can refresh committed KCL / job meta. */
+  onKclSaved?: (kcl: string, job: Job) => void
+}
+
+type KclExecutor = {
+  submit: (
+    source: string | Map<string, string>,
+    opts?: { mainKclPathName?: string },
+  ) => Promise<unknown>
 }
 
 type TouchGesture = {
@@ -122,10 +132,12 @@ export function ZooEngineView({
   onCopyKcl,
   onDownloadKcl,
   onSessionSeconds,
+  onKclSaved,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const popupHostRef = useRef<HTMLDivElement | null>(null)
   const rtcRef = useRef<RtcSender | null>(null)
+  const executorRef = useRef<KclExecutor | null>(null)
   const solidIdsRef = useRef<string[]>([])
   const explodeOffsetRef = useRef<Record<string, { x: number; y: number; z: number }>>({})
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
@@ -133,10 +145,18 @@ export function ZooEngineView({
   const touchGestureRef = useRef<TouchGesture | null>(null)
   const streamSizeRef = useRef({ width: 640, height: 384 })
 
+  const committed = kcl ?? ''
+  const [draft, setDraft] = useState(committed)
+  const draftRef = useRef(draft)
+  draftRef.current = draft
+  const dirty = draft !== committed
+  const [saveBusy, setSaveBusy] = useState(false)
+  const [runBusy, setRunBusy] = useState(false)
+  const [editorOpen, setEditorOpen] = useState(true)
+
   const [status, setStatus] = useState('Idle')
   const [error, setError] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
-  const [session, setSession] = useState(0)
   const [popup, setPopup] = useState(false)
   const [sessionSeconds, setSessionSeconds] = useState(0)
   const [ready, setReady] = useState(false)
@@ -168,6 +188,11 @@ export function ZooEngineView({
     registerEngineSession(jobId, jobTitle)
     return () => unregisterEngineSession(jobId)
   }, [connected, jobId, jobTitle])
+
+  // Keep the draft aligned with disk when the user hasn't edited locally.
+  useEffect(() => {
+    if (!dirty) setDraft(committed)
+  }, [committed, dirty])
 
   useEffect(() => {
     if (!connected) {
@@ -514,9 +539,112 @@ export function ZooEngineView({
     }
   }
 
+  async function finishSceneAfterSubmit(rtc: RtcSender, source: string) {
+    await zoomToFit(rtc)
+    await refreshSolidIds(rtc)
+    await applyEdges(rtc, edgesOn)
+    if (xrayOn) {
+      await applyXray(rtc, true, xrayOpacity)
+    } else {
+      await applyAppearanceFromKcl(rtc, source)
+    }
+    if (explodeMode) await applyExplode(rtc, explodeMode, explodeSpacing)
+    setStatus('Capturing view snaps…')
+    await refreshSnapshotRail(rtc)
+  }
+
+  async function submitDraft(source: string) {
+    const executor = executorRef.current
+    const rtc = rtcRef.current
+    if (!executor || !rtc) {
+      setBusyNote('Start a live session first')
+      return
+    }
+    if (!source.trim()) {
+      setError('KCL is empty — nothing to run')
+      return
+    }
+    setRunBusy(true)
+    setError(null)
+    setStatus('Executing KCL…')
+    setBusyNote('Running draft…')
+    try {
+      const result = await executor.submit(source, { mainKclPathName: 'main.kcl' })
+      setExecValues(executorValuesFromResult(result))
+      const errs = executorErrorsFromResult(result)
+      setExecErrors(errs)
+      if (errs.length) setInspector('errors')
+      try {
+        await finishSceneAfterSubmit(rtc, source)
+      } catch (err) {
+        setBusyNote(
+          err instanceof Error ? err.message : 'Scene setup finished with warnings',
+        )
+      }
+      setStatus('Live')
+      setBusyNote(null)
+      appLog('Live Engine ran KCL draft')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setStatus('Failed')
+      setBusyNote(null)
+    } finally {
+      setRunBusy(false)
+    }
+  }
+
+  function onRunDraft() {
+    const source = draftRef.current
+    if (!source.trim()) {
+      setError('KCL is empty — nothing to run')
+      return
+    }
+    if (!connected) {
+      setConnected(true)
+      return
+    }
+    if (!ready) {
+      setBusyNote('Engine is still connecting…')
+      return
+    }
+    void submitDraft(source)
+  }
+
+  async function onSaveDraft() {
+    const source = draftRef.current
+    if (!source.trim()) {
+      setError('KCL is empty — nothing to save')
+      return
+    }
+    if (!dirty) {
+      setBusyNote('No local changes to save')
+      return
+    }
+    setSaveBusy(true)
+    setError(null)
+    try {
+      const result = await saveJobKcl(jobId, source)
+      onKclSaved?.(result.kcl, result.job)
+      setDraft(result.kcl)
+      setBusyNote('Saved main.kcl (previous kept as main.prev.kcl)')
+      appLog('Saved main.kcl from Live Engine editor')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaveBusy(false)
+    }
+  }
+
+  function onDiscardDraft() {
+    setDraft(committed)
+    setBusyNote('Discarded local edits')
+  }
+
   useEffect(() => {
-    if (!active || !connected || !kcl?.trim()) {
+    const source = draftRef.current
+    if (!active || !connected || !source.trim()) {
       rtcRef.current = null
+      executorRef.current = null
       setReady(false)
       setStatus(
         !active
@@ -574,11 +702,13 @@ export function ZooEngineView({
         if (cancelled || !view?.rtc) return
         const rtc = view.rtc as unknown as RtcSender
         rtcRef.current = rtc
+        const executor = view.rtc.executor() as KclExecutor
+        executorRef.current = executor
         setReady(true)
+        const toRun = draftRef.current
         setStatus('Executing KCL…')
-        const executor = view.rtc.executor()
         void executor
-          .submit(kcl, { mainKclPathName: 'main.kcl' })
+          .submit(toRun, { mainKclPathName: 'main.kcl' })
           .then(async (result) => {
             if (cancelled) return
             setExecValues(executorValuesFromResult(result))
@@ -586,17 +716,7 @@ export function ZooEngineView({
             setExecErrors(errs)
             if (errs.length) setInspector('errors')
             try {
-              await zoomToFit(rtc)
-              await refreshSolidIds(rtc)
-              await applyEdges(rtc, edgesOn)
-              if (xrayOn) {
-                await applyXray(rtc, true, xrayOpacity)
-              } else {
-                await applyAppearanceFromKcl(rtc, kcl)
-              }
-              if (explodeMode) await applyExplode(rtc, explodeMode, explodeSpacing)
-              setStatus('Capturing view snaps…')
-              await refreshSnapshotRail(rtc)
+              await finishSceneAfterSubmit(rtc, toRun)
             } catch (err) {
               if (!cancelled) {
                 setBusyNote(
@@ -622,6 +742,7 @@ export function ZooEngineView({
     return () => {
       cancelled = true
       rtcRef.current = null
+      executorRef.current = null
       setReady(false)
       if (view) {
         void view.deconstructor()
@@ -629,8 +750,9 @@ export function ZooEngineView({
       }
       host.replaceChildren()
     }
+    // Reconnect only for session lifecycle — not on every draft keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, connected, kcl, session, popup])
+  }, [active, connected, popup])
 
   useEffect(() => {
     if (!popup) return
@@ -837,7 +959,7 @@ export function ZooEngineView({
       endDrag()
       touchPointsRef.current.clear()
     }
-  }, [ready, popup, session])
+  }, [ready, popup])
 
   useEffect(() => {
     panModeRef.current = panMode
@@ -965,9 +1087,9 @@ export function ZooEngineView({
             </IconBtn>
           )}
           <IconBtn
-            label="Re-run"
-            disabled={!connected || !kcl}
-            onClick={() => setSession((n) => n + 1)}
+            label={connected ? 'Run' : 'Start + run'}
+            disabled={!draft.trim() || runBusy || (connected && !ready)}
+            onClick={() => onRunDraft()}
           >
             <IconRefresh />
           </IconBtn>
@@ -1208,7 +1330,17 @@ export function ZooEngineView({
               >
                 <IconRefresh />
               </IconBtn>
-              <IconBtn label="Copy KCL" disabled={!kcl} onClick={() => onCopyKcl?.()}>
+              <IconBtn
+                label="Copy KCL"
+                disabled={!draft.trim()}
+                onClick={() => {
+                  void navigator.clipboard.writeText(draft).then(
+                    () => appLog('Copied KCL draft to clipboard'),
+                    () => setError('Could not copy KCL'),
+                  )
+                  onCopyKcl?.()
+                }}
+              >
                 <IconCopy />
               </IconBtn>
               <IconBtn label="KCL file" disabled={!kcl} onClick={() => onDownloadKcl?.()}>
@@ -1326,7 +1458,7 @@ export function ZooEngineView({
       <div className="engine-inspector">
         <p className="engine-inspector-lead">
           <strong>Errors</strong> — KCL compile/runtime messages from the last run. Fix the
-          source, then Re-run.
+          source in the editor, then Run.
         </p>
         {execErrors.length ? (
           <ul>
@@ -1354,25 +1486,99 @@ export function ZooEngineView({
             : rotateMode
               ? 'Rotate mode · drag to orbit'
               : 'Scroll zoom · Pan/Rotate tools · right-drag pan'}
-          {' · '}click select · expand for full tools
+          {' · '}edit KCL below · Run without reconnect · Save to disk
         </span>
       </div>
       <UsageMeter
         jobSeconds={jobSeconds}
         sessionSeconds={connected ? sessionSeconds : 0}
-        refreshKey={`${connected}-${session}`}
+        refreshKey={`${connected}-${ready}`}
         compact
       />
       {renderToolbar('compact')}
       {busyNote ? <p className="hint engine-busy">{busyNote}</p> : null}
       {error ? <div className="banner bad">{error}</div> : null}
       {snapRail}
-      <div className="engine-host" ref={hostRef} />
-      {!connected ? (
-        <p className="muted engine-idle-note">
-          Session is off so you are not burning Engine minutes.
-        </p>
-      ) : null}
+      <div className="engine-split">
+        <div className="engine-viewport-col">
+          <div className="engine-host" ref={hostRef} />
+          {!connected ? (
+            <p className="muted engine-idle-note">
+              Session is off so you are not burning Engine minutes. Edit KCL below, then Start
+              or Run.
+            </p>
+          ) : null}
+        </div>
+        <div className="engine-editor-col">
+          <div className="engine-editor-head">
+            <button
+              type="button"
+              className={`section-toggle${editorOpen ? ' open' : ''}`}
+              aria-expanded={editorOpen}
+              aria-controls="engine-kcl-editor"
+              onClick={() => setEditorOpen((v) => !v)}
+            >
+              <span className="section-toggle-label">
+                <span className="section-toggle-chevron" aria-hidden="true">
+                  {editorOpen ? '▾' : '▸'}
+                </span>
+                <span className="section-toggle-title" role="heading" aria-level={3}>
+                  KCL editor
+                </span>
+              </span>
+              <span className="section-toggle-meta">
+                {dirty ? 'Unsaved changes' : editorOpen ? 'Saved' : 'Show'}
+              </span>
+            </button>
+          </div>
+          <div id="engine-kcl-editor" hidden={!editorOpen}>
+            <div className="engine-editor-actions">
+              <button
+                type="button"
+                className="primary"
+                disabled={!draft.trim() || runBusy || (connected && !ready)}
+                onClick={() => onRunDraft()}
+              >
+                {runBusy ? 'Running…' : connected ? 'Run' : 'Start + run'}
+              </button>
+              <button
+                type="button"
+                disabled={!dirty || saveBusy || !draft.trim()}
+                onClick={() => void onSaveDraft()}
+              >
+                {saveBusy ? 'Saving…' : 'Save'}
+              </button>
+              <button type="button" disabled={!dirty || saveBusy} onClick={onDiscardDraft}>
+                Discard
+              </button>
+              <button
+                type="button"
+                className="linkish"
+                disabled={!draft.trim()}
+                onClick={() => {
+                  const blob = new Blob([draft], { type: 'text/plain;charset=utf-8' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = 'main.kcl'
+                  a.click()
+                  URL.revokeObjectURL(url)
+                  appLog('Downloaded KCL draft')
+                  onDownloadKcl?.()
+                }}
+              >
+                Download
+              </button>
+            </div>
+            <p className="hint engine-editor-hint">
+              Run executes the draft in the live session (no reconnect). Save writes{' '}
+              <code>main.kcl</code> and keeps one previous snapshot as{' '}
+              <code>main.prev.kcl</code> (does not re-export STL/STEP).
+            </p>
+            <KclEditor value={draft} onChange={setDraft} ariaLabel="main.kcl editor" />
+          </div>
+        </div>
+      </div>
 
       {popup && typeof document !== 'undefined'
         ? createPortal(
@@ -1402,7 +1608,7 @@ export function ZooEngineView({
                 <UsageMeter
                   jobSeconds={jobSeconds}
                   sessionSeconds={connected ? sessionSeconds : 0}
-                  refreshKey={`popup-${connected}-${session}`}
+                  refreshKey={`popup-${connected}-${ready}`}
                   compact
                 />
                 {renderToolbar('full')}

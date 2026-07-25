@@ -1098,6 +1098,65 @@ button.danger:hover:not(:disabled) {
   max-width: 100%;
 }
 
+.engine-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 0.75rem;
+  align-items: start;
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 960px) {
+  .engine-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.engine-viewport-col,
+.engine-editor-col {
+  min-width: 0;
+}
+
+.engine-editor-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.engine-editor-col .section-toggle.open {
+  border-radius: 8px;
+}
+
+.engine-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.55rem 0 0.35rem;
+}
+
+.engine-editor-hint {
+  margin: 0 0 0.45rem;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.kcl-editor {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--code-bg);
+}
+
+.kcl-editor .cm-editor {
+  max-height: min(52vh, 480px);
+  overflow: auto;
+}
+
+.kcl-editor .cm-editor.cm-focused {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: -1px;
+}
+
 .prompt-history {
   margin: 0;
 }

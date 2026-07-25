@@ -39,6 +39,7 @@ meshmoose jobs logs <id> [--lines N]
 meshmoose jobs refine <id> --message TEXT [--photo] [--mesh] [--wait]
 meshmoose jobs finish <id> --preset PRESET [--wait]
 meshmoose jobs finish --list-presets
+meshmoose jobs save-kcl <id> --file PATH [--note TEXT]
 meshmoose jobs artifacts <id>
 meshmoose jobs download <id> [--out DIR] [--file REL]
 meshmoose mesh corrupt INPUT [-o OUT] [--missing] [--noise] [--artifacts] [--seed]
@@ -53,6 +54,8 @@ Every subcommand supports `--help` with examples.
 `jobs retry` clones a **failed** job’s prompt, title, tags, and input files into a new run (same as `POST /jobs/{id}/retry`).
 
 `jobs finish` patches `main.kcl` with a PBR `appearance(...)` preset and re-exports STL / STEP / 3MF (no Agent call).
+
+`jobs save-kcl` writes `outputs/main.kcl` from a local file, keeps one previous snapshot as `main.prev.kcl`, and records a prompt-history `edit` entry (no Agent call, no re-export).
 
 `jobs rename` updates the title and/or replaces tags (same as `PATCH /jobs/{id}`). Omit `--tag` to keep existing tags.
 

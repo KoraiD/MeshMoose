@@ -203,13 +203,39 @@ class JobStore:
             "created_at": created_at or utc_now(),
         }
         # Avoid duplicates when recovering from logs / double-submit.
-        # Allow repeated finish entries (same preset applied again).
-        if role != "finish" and any(
+        # Allow repeated finish / manual edit entries.
+        if role not in {"finish", "edit"} and any(
             p.get("role") == role and p.get("text") == text for p in prompts
         ):
             return meta
         prompts.append(entry)
         return self.update_meta(job_id, prompts=prompts)
+
+    def save_main_kcl(
+        self,
+        job_id: str,
+        source: str,
+        *,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        """Write outputs/main.kcl, keep one previous snapshot, record prompt history."""
+        _ = self.get(job_id)  # KeyError if missing
+        paths = self.paths(job_id)
+        paths.outputs.mkdir(parents=True, exist_ok=True)
+        kcl_path = paths.outputs / "main.kcl"
+        prev_path = paths.outputs / "main.prev.kcl"
+        if kcl_path.is_file():
+            prev_path.write_bytes(kcl_path.read_bytes())
+        text = source.replace("\r\n", "\n")
+        kcl_path.write_text(text, encoding="utf-8")
+        label = (note or "").strip() or f"Manual KCL edit ({len(text)} chars)"
+        self.append_prompt(job_id, text=label, role="edit")
+        self.logger(job_id).emit(
+            f"Saved main.kcl ({len(text)} chars)"
+            + (f": {label}" if (note or "").strip() else ""),
+            kind="kcl_edit",
+        )
+        return self.get(job_id, hydrate=True)
 
     def ensure_prompt_history(self, job_id: str) -> dict[str, Any]:
         """Backfill prompts[] from meta.prompt + job.log refine lines (legacy jobs)."""

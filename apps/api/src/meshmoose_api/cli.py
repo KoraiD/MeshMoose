@@ -75,7 +75,7 @@ _meshmoose() {
     cmds="health usage demos jobs mesh completion"
     case "${COMP_WORDS[1]}" in
         demos) COMPREPLY=( $(compgen -W "list run" -- "$cur") ) ;;
-        jobs)  COMPREPLY=( $(compgen -W "list get create wait cancel retry delete rename logs refine finish artifacts download" -- "$cur") ) ;;
+        jobs)  COMPREPLY=( $(compgen -W "list get create wait cancel retry delete rename logs refine finish save-kcl artifacts download" -- "$cur") ) ;;
         mesh)  COMPREPLY=( $(compgen -W "corrupt" -- "$cur") ) ;;
         completion) COMPREPLY=( $(compgen -W "bash zsh" -- "$cur") ) ;;
         *)     COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
@@ -96,7 +96,7 @@ _meshmoose() {
     fi
     case "${words[2]}" in
         demos) compadd list run ;;
-        jobs)  compadd list get create wait cancel retry delete rename logs refine finish artifacts download ;;
+        jobs)  compadd list get create wait cancel retry delete rename logs refine finish save-kcl artifacts download ;;
         mesh)  compadd corrupt ;;
         completion) compadd bash zsh ;;
     esac
@@ -345,6 +345,18 @@ def cmd_jobs_finish(args: argparse.Namespace) -> int:
             )
         _print(job, as_json=True)
         return 0 if job.get("status") != "failed" else 1
+
+
+def cmd_jobs_save_kcl(args: argparse.Namespace) -> int:
+    path = Path(args.file)
+    if not path.is_file():
+        print(f"Error: file not found: {path}", file=sys.stderr)
+        return 2
+    source = path.read_text(encoding="utf-8")
+    with _client_from_args(args) as client:
+        result = client.save_kcl(args.job_id, source, note=args.note)
+        _print(result, as_json=True)
+        return 0
 
 
 def cmd_jobs_artifacts(args: argparse.Namespace) -> int:
@@ -665,6 +677,17 @@ def build_parser() -> argparse.ArgumentParser:
     j_finish.add_argument("--wait", action="store_true")
     j_finish.add_argument("--timeout", type=float, default=900.0)
     j_finish.set_defaults(func=cmd_jobs_finish)
+
+    j_save_kcl = jobs_sub.add_parser(
+        "save-kcl",
+        parents=[shared],
+        help="Save edited main.kcl (keeps one previous snapshot)",
+        epilog="Example: meshmoose jobs save-kcl JOB_ID --file ./main.kcl",
+    )
+    j_save_kcl.add_argument("job_id")
+    j_save_kcl.add_argument("--file", required=True, help="Path to .kcl source")
+    j_save_kcl.add_argument("--note", default=None, help="Optional history note")
+    j_save_kcl.set_defaults(func=cmd_jobs_save_kcl)
 
     j_arts = jobs_sub.add_parser(
         "artifacts",

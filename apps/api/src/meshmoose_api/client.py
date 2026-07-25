@@ -243,6 +243,18 @@ class MeshMooseClient:
             data={"preset": preset},
         )
 
+    def save_kcl(
+        self,
+        job_id: str,
+        kcl: str,
+        *,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"kcl": kcl}
+        if note is not None:
+            body["note"] = note
+        return self._request("PUT", f"/jobs/{quote(job_id)}/kcl", json=body)
+
     def wait_job(
         self,
         job_id: str,

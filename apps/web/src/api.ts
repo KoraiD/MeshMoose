@@ -283,6 +283,28 @@ export async function patchJob(
   return res.json()
 }
 
+export type SaveKclResult = {
+  job: Job
+  kcl: string
+}
+
+export async function saveJobKcl(
+  id: string,
+  kcl: string,
+  note?: string,
+): Promise<SaveKclResult> {
+  const res = await fetch(`${BASE}/jobs/${id}/kcl`, {
+    method: 'PUT',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ kcl, ...(note ? { note } : {}) }),
+  })
+  if (!res.ok) throw new Error(await errDetail(res))
+  return res.json()
+}
+
 export type ZooUsage = {
   balance: {
     monthly_api_credits_remaining?: number | null

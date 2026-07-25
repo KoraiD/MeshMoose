@@ -52,8 +52,9 @@ export function DocsPage({ onBack, embedded = false }: Props) {
             Watch the job in the sidebar or <strong>All jobs</strong>. On small screens, open
             the Jobs drawer. Status updates automatically while the app is open. Use{' '}
             <strong>Compare</strong> (overlay, Align tools, optional nudge),{' '}
-            <strong>Live engine</strong>, <strong>Workbench</strong> (logs, metrics, KCL), or{' '}
-            <strong>Iterate</strong> (prompt history, refine, Apply finish).
+            <strong>Live engine</strong> (preview + KCL editor: Run / Save),{' '}
+            <strong>Workbench</strong> (logs, metrics, KCL), or <strong>Iterate</strong>{' '}
+            (prompt history, refine, Apply finish).
           </li>
           <li>
             Rename the job and add up to five tags from the library (custom tags appear first
@@ -150,6 +151,11 @@ export function DocsPage({ onBack, embedded = false }: Props) {
               <td>ICP align + deviation</td>
             </tr>
             <tr>
+              <td>PUT</td>
+              <td>/jobs/&#123;id&#125;/kcl</td>
+              <td>Save edited main.kcl (+ main.prev.kcl snapshot)</td>
+            </tr>
+            <tr>
               <td>GET</td>
               <td>/jobs/&#123;id&#125;/artifacts</td>
               <td>Artifact index</td>
@@ -185,6 +191,7 @@ meshmoose demos run partial-stand --mode thoughtful --wait
 meshmoose jobs create --prompt "Make a stand" --photo a.jpg --mesh a.stl \
   --title "Stand" --tag stand --wait
 meshmoose jobs finish <job_id> --preset brushed-aluminum --wait
+meshmoose jobs save-kcl <job_id> --file ./main.kcl
 meshmoose jobs retry <failed_job_id>
 meshmoose jobs download <job_id> --out ./exports
 meshmoose mesh corrupt part.stl -o partial.stl --missing 0.35`}</pre>

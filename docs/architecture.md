@@ -49,7 +49,7 @@ Authenticated job files (`/jobs/{id}/files/...`) require the same Bearer header.
 | API key menu | Token, Zoo usage (credits + recent calls), optional 10‑minute usage auto-refresh |
 | Settings | Theme, job finish notifications, tag library, custom refine snippets, prompt templates, app log |
 | New job modal | Title, prompt templates, mode, photos, meshes, local STL preview, demos |
-| Job detail | Rename / tags; Compare / Live engine / Workbench / Iterate (prompt history, refine + snippets, Apply finish) |
+| Job detail | Rename / tags; Compare / Live engine (preview + KCL editor) / Workbench / Iterate (prompt history, refine + snippets, Apply finish) |
 | Docs page | User guide, API/CLI summary |
 
 Browser-only libraries (localStorage / IndexedDB): tag vocabulary, refine snippets with attachments, usage auto-refresh preference, notification preference, theme.
@@ -62,10 +62,10 @@ Per-job directory under `data/jobs/<id>/` (gitignored):
 meta.json          title, tags[], prompts[], status, active_ms, run_started_at, …
 events.jsonl
 inputs/            photos + meshes
-outputs/           reference.stl, main.kcl, generated.stl/.step/.3mf, metrics.json, job.log, agent_*.jpeg
+outputs/           reference.stl, main.kcl, main.initial.kcl, main.prev.kcl (last manual save), generated.stl/.step/.3mf, metrics.json, job.log, agent_*.jpeg
 ```
 
-`meta.prompts[]` records the initial prompt, each refine message, and finish applications. Jobs without `prompts[]` are hydrated from `job.log` when loaded.
+`meta.prompts[]` records the initial prompt, each refine message, finish applications, and manual KCL edits (`role: "edit"`). Jobs without `prompts[]` are hydrated from `job.log` when loaded.
 
 Volume in `metrics.json` is stored in **cm³**; the UI can display mm³ / cm³ / in³.
 
@@ -107,6 +107,16 @@ The UI can attach a **custom refine snippet** (text + optional stored photos/mes
 
 `POST /jobs/{id}/finish` with a preset id from `GET /finishes`. MeshMoose rewrites the existing `appearance(...)` assignment in `main.kcl` (or pipes onto the last solid assignment), appends a prompt-history entry, and re-exports. The Live Engine tab also applies parsed appearance params over WebRTC when connected.
 
-## Live Engine preview
+## Live Engine preview + KCL editor
 
-The web UI mounts `@kittycad/web-view` (`ZooWebView`) against the user’s Bearer token to WebRTC-stream the Zoo Engine executing `main.kcl`. After `ready`, MeshMoose sends modeling commands for zoom / pan / rotate / scale, camera presets, edge visibility, x-ray, explode, `export3d`, PNG snapshots, click selection, and touch gestures. Mesh compare (Three.js) remains the default offline view; live engine is opt-in (uses API minutes). Open sessions are registered in-memory so the Jobs modal can stop them. WASM is copied to `apps/web/public/` via `npm postinstall` (`scripts/copy-wasm.mjs`).
+The web UI mounts `@kittycad/web-view` (`ZooWebView`) against the user’s Bearer token to WebRTC-stream the Zoo Engine executing KCL. After `ready`, MeshMoose sends modeling commands for zoom / pan / rotate / scale, camera presets, edge visibility, x-ray, explode, `export3d`, PNG snapshots, click selection, and touch gestures. Mesh compare (Three.js) remains the default offline view; live engine is opt-in (uses API minutes). Open sessions are registered in-memory **after Start** so the Jobs modal can stop them. WASM is copied to `apps/web/public/` via `npm postinstall` (`scripts/copy-wasm.mjs`).
+
+The Live Engine tab also includes a CodeMirror **KCL editor** over a local draft of `main.kcl`:
+
+- **Run** — `executor.submit(draft)` on the existing RTC session (no reconnect on each edit).
+- **Save** — `PUT /jobs/{id}/kcl` writes `outputs/main.kcl`, keeps one previous snapshot as `outputs/main.prev.kcl`, and appends a prompt-history `edit` entry. Phase 1 does **not** re-export STL/STEP/3MF (Compare artifacts stay until refine/finish/export).
+- **Discard** — resets the draft to the committed file on disk.
+
+## Manual KCL save
+
+`PUT /jobs/{id}/kcl` with `{ "kcl": "…", "note"?: "…" }`. Rejected while the job is running. Same behavior as `meshmoose jobs save-kcl`.

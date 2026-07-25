@@ -2008,6 +2008,10 @@ export default function App() {
                         if (!job || !kcl) return
                         void downloadAuth(job.id, 'outputs/main.kcl', 'main.kcl')
                       }}
+                      onKclSaved={(text, updated) => {
+                        setKcl(text)
+                        setJob(updated)
+                      }}
                     />
                   </Suspense>
                 </div>

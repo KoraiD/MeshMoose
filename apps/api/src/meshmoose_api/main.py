@@ -39,6 +39,11 @@ class ReferencePatch(BaseModel):
     source: str
 
 
+class KclSave(BaseModel):
+    kcl: str = Field(..., min_length=1)
+    note: str | None = Field(default=None, max_length=200)
+
+
 configure_logging()
 app = FastAPI(
     title="MeshMoose.ai API",
@@ -74,9 +79,18 @@ store = JobStore()
 DEMOS_DIR = ROOT / "demos"
 PROMPT_MAX_CHARS = 8000
 REFINE_MAX_CHARS = 2000
+KCL_MAX_CHARS = 512 * 1024
 # Per-file upload cap. Zookeeper payloads are ~64MB after JSON uint8 expansion;
 # 32MB per raw file leaves headroom for multi-file jobs (see docs/api-notes.md).
 MAX_UPLOAD_BYTES = 32 * 1024 * 1024
+
+_RUNNING = {
+    JobStatus.QUEUED.value,
+    JobStatus.PREPROCESSING.value,
+    JobStatus.AGENT_RUNNING.value,
+    JobStatus.EXPORTING.value,
+    JobStatus.MEASURING.value,
+}
 
 
 async def _read_capped(upload: UploadFile, filename: str) -> bytes:
@@ -504,6 +518,33 @@ async def refine(
     return store.get(job_id, hydrate=True)
 
 
+@app.put("/jobs/{job_id}/kcl", tags=["jobs"])
+async def save_kcl(
+    job_id: str,
+    body: KclSave,
+    token: str = Depends(require_token),
+) -> dict:
+    """Save edited main.kcl (keeps one previous snapshot as main.prev.kcl). No re-export."""
+    _ = token
+    try:
+        meta = store.get(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+
+    if meta.get("status") in _RUNNING:
+        raise HTTPException(status_code=409, detail="Job is still running")
+
+    source = body.kcl.replace("\r\n", "\n")
+    if len(source) > KCL_MAX_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"KCL exceeds {KCL_MAX_CHARS} characters",
+        )
+
+    job = store.save_main_kcl(job_id, source, note=body.note)
+    return {"job": job, "kcl": source}
+
+
 @app.post("/jobs/{job_id}/finish", tags=["jobs"])
 async def apply_finish(
     job_id: str,
@@ -517,13 +558,7 @@ async def apply_finish(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Job not found") from exc
 
-    if meta.get("status") in {
-        "queued",
-        "preprocessing",
-        "agent_running",
-        "exporting",
-        "measuring",
-    }:
+    if meta.get("status") in _RUNNING:
         raise HTTPException(status_code=409, detail="Job is still running")
 
     kcl = store.paths(job_id).outputs / "main.kcl"

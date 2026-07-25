@@ -394,6 +394,47 @@ def test_finishes_endpoint_lists_presets(tmp_path: Path, monkeypatch: pytest.Mon
     assert "metalness" in brushed
 
 
+def test_save_kcl_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
+    from fastapi.testclient import TestClient
+
+    import meshmoose_api.main as main_mod
+    from meshmoose_api.jobs import JobStore as LiveStore
+
+    main_mod.store = LiveStore(tmp_path / "jobs")
+    client = TestClient(main_mod.app)
+    headers = {"Authorization": "Bearer test-token"}
+    meta = main_mod.store.create(prompt="edit me", mode="fast")
+    job_id = meta["id"]
+    main_mod.store.update_meta(job_id, status="succeeded")
+    kcl_path = main_mod.store.paths(job_id).outputs / "main.kcl"
+    kcl_path.write_text("part = 1\n", encoding="utf-8")
+
+    res = client.put(
+        f"/jobs/{job_id}/kcl",
+        headers=headers,
+        json={"kcl": "part = 2\n", "note": "bump dimension"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["kcl"] == "part = 2\n"
+    assert body["job"]["status"] == "succeeded"
+    assert any(p.get("role") == "edit" for p in body["job"].get("prompts") or [])
+    assert kcl_path.read_text(encoding="utf-8") == "part = 2\n"
+    prev = main_mod.store.paths(job_id).outputs / "main.prev.kcl"
+    assert prev.read_text(encoding="utf-8") == "part = 1\n"
+
+    from meshmoose_api.jobs import JobStatus
+
+    main_mod.store.set_status(job_id, JobStatus.EXPORTING)
+    busy = client.put(
+        f"/jobs/{job_id}/kcl",
+        headers=headers,
+        json={"kcl": "part = 3\n"},
+    )
+    assert busy.status_code == 409
+
+
 def test_finish_endpoint_requires_kcl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
     from fastapi.testclient import TestClient
