@@ -1,7 +1,9 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { linter, lintGutter, type Diagnostic } from '@codemirror/lint'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers, placeholder } from '@codemirror/view'
+import { tags } from '@lezer/highlight'
 import { useEffect, useRef } from 'react'
 import { kclLanguage } from './kclLanguage'
 import { analyzeKcl } from './kclWasm'
@@ -27,54 +29,72 @@ function editorTheme() {
   const danger = cssVar('--danger', '#b91c1c')
   const warn = cssVar('--warn', '#b45309')
   const mono = cssVar('--mono', 'ui-monospace, SFMono-Regular, Menlo, monospace')
-  return EditorView.theme(
-    {
-      '&': {
-        color: fg,
-        backgroundColor: bg,
-        fontSize: '0.8rem',
-        fontFamily: mono,
+  const kw = cssVar('--code-keyword', accent)
+  const str = cssVar('--code-string', '#0b6e4f')
+  const num = cssVar('--code-number', '#a16207')
+  const op = cssVar('--code-operator', '#475569')
+  const name = cssVar('--code-name', fg)
+  const comment = cssVar('--code-comment', muted)
+  const dark = document.documentElement.dataset.theme === 'dark'
+  const highlight = HighlightStyle.define([
+    { tag: tags.keyword, color: dark ? '#5eead4' : kw, fontWeight: '600' },
+    { tag: tags.comment, color: comment, fontStyle: 'italic' },
+    { tag: tags.string, color: dark ? '#6ee7b7' : str },
+    { tag: tags.number, color: dark ? '#fbbf24' : num },
+    { tag: tags.variableName, color: dark ? '#e2e8f0' : name },
+    { tag: tags.operator, color: dark ? '#94a3b8' : op },
+  ])
+  return [
+    syntaxHighlighting(highlight),
+    EditorView.theme(
+      {
+        '&': {
+          color: fg,
+          backgroundColor: bg,
+          fontSize: '0.8rem',
+          fontFamily: mono,
+        },
+        '.cm-content': {
+          caretColor: accent,
+          minHeight: '220px',
+          fontFamily: mono,
+        },
+        '.cm-gutters': {
+          backgroundColor: bg,
+          color: muted,
+          borderRight: `1px solid ${line}`,
+        },
+        '.cm-activeLineGutter': {
+          backgroundColor: 'transparent',
+          color: fg,
+        },
+        '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
+          backgroundColor: `color-mix(in srgb, ${accent} 28%, transparent)`,
+        },
+        '.cm-cursor, .cm-dropCursor': {
+          borderLeftColor: accent,
+        },
+        '.cm-placeholder': {
+          color: muted,
+        },
+        '.cm-diagnostic-error': {
+          borderBottom: `1px wavy ${danger}`,
+        },
+        '.cm-diagnostic-warning': {
+          borderBottom: `1px wavy ${warn}`,
+        },
+        '.cm-lintRange-error': {
+          backgroundImage: 'none',
+          borderBottom: `1px wavy ${danger}`,
+        },
+        '.cm-lintRange-warning': {
+          backgroundImage: 'none',
+          borderBottom: `1px wavy ${warn}`,
+        },
       },
-      '.cm-content': {
-        caretColor: accent,
-        minHeight: '220px',
-        fontFamily: mono,
-      },
-      '.cm-gutters': {
-        backgroundColor: bg,
-        color: muted,
-        borderRight: `1px solid ${line}`,
-      },
-      '.cm-activeLineGutter': {
-        backgroundColor: 'transparent',
-        color: fg,
-      },
-      '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-        backgroundColor: `color-mix(in srgb, ${accent} 28%, transparent)`,
-      },
-      '.cm-cursor, .cm-dropCursor': {
-        borderLeftColor: accent,
-      },
-      '.cm-placeholder': {
-        color: muted,
-      },
-      '.cm-diagnostic-error': {
-        borderBottom: `1px wavy ${danger}`,
-      },
-      '.cm-diagnostic-warning': {
-        borderBottom: `1px wavy ${warn}`,
-      },
-      '.cm-lintRange-error': {
-        backgroundImage: 'none',
-        borderBottom: `1px wavy ${danger}`,
-      },
-      '.cm-lintRange-warning': {
-        backgroundImage: 'none',
-        borderBottom: `1px wavy ${warn}`,
-      },
-    },
-    { dark: document.documentElement.dataset.theme === 'dark' },
-  )
+      { dark },
+    ),
+  ]
 }
 
 const kclLinter = linter(
@@ -124,7 +144,7 @@ export function KclEditor({ value, onChange, ariaLabel }: Props) {
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         EditorView.lineWrapping,
         placeholder('// Edit main.kcl — Save to disk, Run to execute live'),
-        editorTheme(),
+        ...editorTheme(),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             onChangeRef.current(update.state.doc.toString())

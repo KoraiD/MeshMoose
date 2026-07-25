@@ -35,8 +35,10 @@ async function loadWasmBytes(): Promise<BufferSource | string> {
     const fs = await import('node:fs')
     const path = await import('node:path')
     const cwd = process.cwd()
+    // Prefer workspace package paths before hoisted root copies (version can differ).
     const candidates = [
       path.join(cwd, 'node_modules/@kittycad/kcl-wasm-lib/kcl_wasm_lib_bg.wasm'),
+      path.join(cwd, 'public/kcl_wasm_lib_bg.wasm'),
       path.join(cwd, '../node_modules/@kittycad/kcl-wasm-lib/kcl_wasm_lib_bg.wasm'),
       path.join(cwd, '../../node_modules/@kittycad/kcl-wasm-lib/kcl_wasm_lib_bg.wasm'),
     ]
@@ -44,6 +46,7 @@ async function loadWasmBytes(): Promise<BufferSource | string> {
     if (!found) throw new Error('kcl_wasm_lib_bg.wasm not found')
     return fs.readFileSync(found)
   }
+  // Served by postinstall copy-wasm; must match @kittycad/kcl-wasm-lib JS version.
   return '/kcl_wasm_lib_bg.wasm'
 }
 

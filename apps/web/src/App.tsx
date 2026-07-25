@@ -828,6 +828,8 @@ export default function App() {
   const refineHint = `${refineLen}/${REFINE_MAX}`
   const jobRunning = Boolean(job && isJobRunning(job.status))
   const canRefine = Boolean(job && !jobRunning && hasKcl)
+  /** Restore only needs an idle job — versions can exist even if main.kcl is missing. */
+  const canRestoreKcl = Boolean(job && !jobRunning)
   const history = job ? promptHistory(job) : []
 
   function onTokenChange(next: string) {
@@ -2518,7 +2520,10 @@ export default function App() {
                         Engine editor (up to 20). Restoring writes the version back to{' '}
                         <code>main.kcl</code>.
                       </p>
-                      <label className="kcl-versions-reexport">
+                      <label
+                        className="kcl-versions-reexport"
+                        title="After restoring this KCL snapshot, regenerate STL/STEP/3MF in the background so Compare stays in sync with the restored code."
+                      >
                         <input
                           type="checkbox"
                           checked={kclRestoreReexport}
@@ -2539,7 +2544,12 @@ export default function App() {
                               </div>
                               <button
                                 type="button"
-                                disabled={Boolean(kclRestoreId) || !canRefine}
+                                disabled={Boolean(kclRestoreId) || !canRestoreKcl}
+                                title={
+                                  jobRunning
+                                    ? 'Wait for the current job run to finish before restoring.'
+                                    : 'Write this snapshot back to main.kcl'
+                                }
                                 onClick={() => void onRestoreKclVersion(v.id)}
                               >
                                 {kclRestoreId === v.id ? 'Restoring…' : 'Restore'}

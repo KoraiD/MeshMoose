@@ -1609,7 +1609,10 @@ export function ZooEngineView({
               >
                 Download
               </button>
-              <label className="engine-reexport-toggle">
+              <label
+                className="engine-reexport-toggle"
+                title="After saving main.kcl, regenerate STL/STEP/3MF in the background so the Compare tab matches your edited KCL."
+              >
                 <input
                   type="checkbox"
                   checked={reexportOnSave}
