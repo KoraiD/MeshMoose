@@ -46,6 +46,8 @@ meshmoose mesh corrupt INPUT [-o OUT] [--missing] [--noise] [--artifacts] [--see
 
 `mesh corrupt` is offline (no API): turns a clean STL / PLY / OBJ / 3MF into a partial noisy “scan” for pipeline demos and tests.
 
+Agent `--mode` for `demos run` / `jobs create`: `thoughtful` (default), `fast`, `auto`, or `zookeeper_pro` (API/CLI; the web New-job modal offers the first three).
+
 Every subcommand supports `--help` with examples.
 
 `jobs retry` clones a **failed** job’s prompt, title, tags, and input files into a new run (same as `POST /jobs/{id}/retry`).

@@ -38,12 +38,13 @@ export function DocsPage({ onBack, embedded = false }: Props) {
           <li>
             In <strong>Settings</strong>: theme, browser notifications when jobs finish, the
             shared <strong>tag library</strong>, custom <strong>refine snippets</strong> (text +
-            optional photo/mesh attachments), and prompt templates.
+            optional photo/mesh attachments), prompt templates, and the app log (Diagnostics).
           </li>
           <li>
             Click <strong>New job</strong>. Choose a prompt template or write your own; give
-            the job a title; upload at least one photo (JPG / PNG / WebP / GIF / HEIC / HEIF —
-            HEIC/HEIF convert to JPEG for Zoo) and one mesh (STL / PLY / OBJ / 3MF / XYZ). Or
+            the job a title; pick an agent mode (<code>thoughtful</code> / <code>fast</code> /{' '}
+            <code>auto</code>); upload at least one photo (JPG / PNG / WebP / GIF / HEIC / HEIF —
+            HEIC/HEIF → JPEG, GIF → PNG for Zoo) and one mesh (STL / PLY / OBJ / 3MF / XYZ). Or
             load a packaged demo (<code>beverage-holder-stand</code>,{' '}
             <code>partial-stand</code>, or <code>brick-wall</code>).
           </li>

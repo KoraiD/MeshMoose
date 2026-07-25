@@ -2353,36 +2353,48 @@ export default function App() {
                   <div className="prompt-history">
                     <button
                       type="button"
-                      className="section-toggle"
+                      className={`section-toggle${historyOpen ? ' open' : ''}`}
                       onClick={() => setHistoryOpen((v) => !v)}
                       aria-expanded={historyOpen}
+                      aria-controls="prompt-history-panel"
                     >
-                      <h3>Prompt history</h3>
-                      <span className="muted">
-                        {historyOpen ? 'Hide' : 'Show'} · {history.length}
+                      <span className="section-toggle-label">
+                        <span className="section-toggle-chevron" aria-hidden="true">
+                          {historyOpen ? '▾' : '▸'}
+                        </span>
+                        <h3>Prompt history</h3>
+                      </span>
+                      <span className="section-toggle-meta">
+                        {historyOpen
+                          ? 'Hide'
+                          : history.length === 0
+                            ? 'Empty · show'
+                            : `Show · ${history.length} ${history.length === 1 ? 'entry' : 'entries'}`}
                       </span>
                     </button>
                     {historyOpen ? (
-                      history.length ? (
-                        <ol className="prompt-list">
-                          {history.map((entry, i) => (
-                            <li
-                              key={`${entry.created_at}-${i}`}
-                              className="prompt-item"
-                            >
-                              <div className="prompt-meta">
-                                <span className="prompt-role">{entry.role}</span>
-                                {entry.mode ? <span>{entry.mode}</span> : null}
-                                <span>{formatPromptTime(entry.created_at)}</span>
-                                <span>{entry.text.length} chars</span>
-                              </div>
-                              <p className="prompt-text">{entry.text}</p>
-                            </li>
-                          ))}
-                        </ol>
-                      ) : (
-                        <p className="muted">No prompts recorded for this job yet.</p>
-                      )
+                      <div id="prompt-history-panel">
+                        {history.length ? (
+                          <ol className="prompt-list">
+                            {history.map((entry, i) => (
+                              <li
+                                key={`${entry.created_at}-${i}`}
+                                className="prompt-item"
+                              >
+                                <div className="prompt-meta">
+                                  <span className="prompt-role">{entry.role}</span>
+                                  {entry.mode ? <span>{entry.mode}</span> : null}
+                                  <span>{formatPromptTime(entry.created_at)}</span>
+                                  <span>{entry.text.length} chars</span>
+                                </div>
+                                <p className="prompt-text">{entry.text}</p>
+                              </li>
+                            ))}
+                          </ol>
+                        ) : (
+                          <p className="muted">No prompts recorded for this job yet.</p>
+                        )}
+                      </div>
                     ) : null}
                   </div>
 
