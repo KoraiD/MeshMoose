@@ -1454,9 +1454,18 @@ export default function App() {
         </aside>
 
         <main className="main-col">
-          {selectedId && !job ? (
-            <section className="panel detail empty-detail" aria-busy={jobLoading}>
+          {selectedId && !job && jobLoading ? (
+            <section className="panel detail empty-detail" aria-busy="true">
               <p className="muted">Loading job…</p>
+            </section>
+          ) : selectedId && !job ? (
+            <section className="panel detail empty-detail">
+              <p className="eyebrow">Couldn&apos;t load job</p>
+              <h2>Something went wrong</h2>
+              <p className="muted">
+                This job couldn&apos;t be loaded. Check the toast for details, pick another
+                job, or try again.
+              </p>
             </section>
           ) : job ? (
             <section className="panel detail">

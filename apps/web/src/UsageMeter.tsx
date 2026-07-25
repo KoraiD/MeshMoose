@@ -45,7 +45,6 @@ export function UsageMeter({
   }, [refreshKey])
 
   const recent = usageState.usage?.recent_totals
-  const updatedLabel = formatUsageUpdatedAt(usageState.lastFetchedAt).toLowerCase()
 
   return (
     <div className={`usage-meter${compact ? ' compact' : ''}`}>
@@ -77,7 +76,9 @@ export function UsageMeter({
           </strong>
         </div>
       </div>
-      <p className="hint usage-meter-updated">Updated {updatedLabel}.</p>
+      <p className="hint usage-meter-updated">
+        Last updated: {formatUsageUpdatedAt(usageState.lastFetchedAt)}
+      </p>
       <details className="usage-meter-about">
         <summary>About usage</summary>
         <p className="hint">
