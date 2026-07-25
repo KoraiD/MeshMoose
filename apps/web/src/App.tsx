@@ -37,7 +37,6 @@ import { flattenMetrics, highlightJson, highlightKcl } from './highlight'
 import { collapseSame, diffLines } from './kclDiff'
 import {
   listEngineSessions,
-  registerEngineSession,
   subscribeEngineSessions,
   unregisterEngineSession,
 } from './engineSessions'
@@ -339,14 +338,6 @@ export default function App() {
   const [engineSessions, setEngineSessions] = useState(listEngineSessions())
 
   useEffect(() => subscribeEngineSessions(() => setEngineSessions(listEngineSessions())), [])
-
-  // Keep the engine-session registry in sync with the Live Engine tab.
-  useEffect(() => {
-    if (engineOn && job) {
-      registerEngineSession(job.id, job.title || job.id)
-      return () => unregisterEngineSession(job.id)
-    }
-  }, [engineOn, job?.id, job?.title])
 
   // Zoo usage: keep 10-min auto-refresh alive while the app is open (not only while the API modal is open).
   useEffect(() => {
@@ -2002,6 +1993,8 @@ export default function App() {
                       kcl={kcl || null}
                       active={engineOn && Boolean(kcl)}
                       hasKcl={Boolean(kcl)}
+                      jobId={job.id}
+                      jobTitle={job.title || job.id}
                       jobStatus={job.status}
                       jobSeconds={jobSeconds}
                       onCopyKcl={() => {
@@ -2362,7 +2355,13 @@ export default function App() {
                         <span className="section-toggle-chevron" aria-hidden="true">
                           {historyOpen ? '▾' : '▸'}
                         </span>
-                        <h3>Prompt history</h3>
+                        <span
+                          className="section-toggle-title"
+                          role="heading"
+                          aria-level={3}
+                        >
+                          Prompt history
+                        </span>
                       </span>
                       <span className="section-toggle-meta">
                         {historyOpen
@@ -2372,30 +2371,28 @@ export default function App() {
                             : `Show · ${history.length} ${history.length === 1 ? 'entry' : 'entries'}`}
                       </span>
                     </button>
-                    {historyOpen ? (
-                      <div id="prompt-history-panel">
-                        {history.length ? (
-                          <ol className="prompt-list">
-                            {history.map((entry, i) => (
-                              <li
-                                key={`${entry.created_at}-${i}`}
-                                className="prompt-item"
-                              >
-                                <div className="prompt-meta">
-                                  <span className="prompt-role">{entry.role}</span>
-                                  {entry.mode ? <span>{entry.mode}</span> : null}
-                                  <span>{formatPromptTime(entry.created_at)}</span>
-                                  <span>{entry.text.length} chars</span>
-                                </div>
-                                <p className="prompt-text">{entry.text}</p>
-                              </li>
-                            ))}
-                          </ol>
-                        ) : (
-                          <p className="muted">No prompts recorded for this job yet.</p>
-                        )}
-                      </div>
-                    ) : null}
+                    <div id="prompt-history-panel" hidden={!historyOpen}>
+                      {history.length ? (
+                        <ol className="prompt-list">
+                          {history.map((entry, i) => (
+                            <li
+                              key={`${entry.created_at}-${i}`}
+                              className="prompt-item"
+                            >
+                              <div className="prompt-meta">
+                                <span className="prompt-role">{entry.role}</span>
+                                {entry.mode ? <span>{entry.mode}</span> : null}
+                                <span>{formatPromptTime(entry.created_at)}</span>
+                                <span>{entry.text.length} chars</span>
+                              </div>
+                              <p className="prompt-text">{entry.text}</p>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p className="muted">No prompts recorded for this job yet.</p>
+                      )}
+                    </div>
                   </div>
 
                   <form className="refine" onSubmit={onRefine}>

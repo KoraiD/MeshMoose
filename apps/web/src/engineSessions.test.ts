@@ -21,4 +21,10 @@ describe('engineSessions', () => {
     expect(again?.startedAt).toBe(startedAt)
     expect(again?.jobTitle).toBe('Stand (renamed)')
   })
+
+  it('does not list a session after unregister', () => {
+    registerEngineSession('job-b', 'Wall')
+    unregisterEngineSession('job-b')
+    expect(listEngineSessions().find((s) => s.jobId === 'job-b')).toBeUndefined()
+  })
 })

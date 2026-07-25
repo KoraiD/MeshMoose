@@ -48,6 +48,10 @@ import {
   type ExportFormat,
   type RtcSender,
 } from './engineRtc'
+import {
+  registerEngineSession,
+  unregisterEngineSession,
+} from './engineSessions'
 import { UsageMeter } from './UsageMeter'
 
 type Props = {
@@ -55,6 +59,8 @@ type Props = {
   active: boolean
   /** Whether main.kcl is available (may differ from active when Live engine is off). */
   hasKcl: boolean
+  jobId: string
+  jobTitle: string
   /** Current job status — used for idle messaging when KCL is missing. */
   jobStatus?: string
   jobSeconds?: number | null
@@ -109,6 +115,8 @@ export function ZooEngineView({
   kcl,
   active,
   hasKcl,
+  jobId,
+  jobTitle,
   jobStatus,
   jobSeconds,
   onCopyKcl,
@@ -153,6 +161,13 @@ export function ZooEngineView({
   const [snapUrls, setSnapUrls] = useState<Partial<Record<CameraViewKey, string>>>({})
   const [snapBusy, setSnapBusy] = useState(false)
   const connectedAt = useRef<number | null>(null)
+
+  // Only list in All jobs after Start — visiting the Live Engine tab is not a session.
+  useEffect(() => {
+    if (!connected || !jobId) return
+    registerEngineSession(jobId, jobTitle)
+    return () => unregisterEngineSession(jobId)
+  }, [connected, jobId, jobTitle])
 
   useEffect(() => {
     if (!connected) {
