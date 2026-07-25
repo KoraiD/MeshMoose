@@ -302,6 +302,13 @@ select:focus-visible {
   margin-top: 1rem;
 }
 
+/* Desktop: Jobs lives in the sidebar — hide mobile-only chrome. */
+.jobs-mobile-toggle,
+.jobs-drawer-close,
+.jobs-drawer-backdrop {
+  display: none;
+}
+
 @media (max-width: 960px) {
   .layout,
   .topbar {
@@ -369,12 +376,6 @@ select:focus-visible {
 .topbar-slim {
   padding-bottom: 0.65rem;
   margin-bottom: 0.75rem;
-}
-
-.jobs-mobile-toggle,
-.jobs-drawer-close,
-.jobs-drawer-backdrop {
-  display: none;
 }
 
 .toast-banner {
