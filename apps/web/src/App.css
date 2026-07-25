@@ -302,6 +302,13 @@ select:focus-visible {
   margin-top: 1rem;
 }
 
+/* Desktop: Jobs lives in the sidebar — hide mobile-only chrome. */
+.jobs-mobile-toggle,
+.jobs-drawer-close,
+.jobs-drawer-backdrop {
+  display: none;
+}
+
 @media (max-width: 960px) {
   .layout,
   .topbar {
@@ -313,6 +320,48 @@ select:focus-visible {
   .topbar-actions {
     justify-content: flex-start;
   }
+
+  .tag-desktop {
+    display: none;
+  }
+
+  .jobs-mobile-toggle {
+    display: inline-flex;
+  }
+
+  .jobs-drawer-close {
+    display: inline-flex;
+  }
+
+  aside.jobs {
+    display: none;
+  }
+
+  aside.jobs.drawer-open {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    margin: 0;
+    border-radius: 0;
+    max-height: none;
+    padding: 1rem;
+    background: var(--panel);
+  }
+
+  .jobs-drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--ink) 35%, transparent);
+  }
+
+  .jobs ul {
+    max-height: none;
+    flex: 1;
+  }
 }
 
 .panel {
@@ -321,8 +370,91 @@ select:focus-visible {
   border-radius: 14px;
   padding: 1rem 1.05rem;
   box-shadow: var(--shadow);
-  animation: rise 0.5s ease-out both;
   backdrop-filter: blur(8px);
+}
+
+.topbar-slim {
+  padding-bottom: 0.65rem;
+  margin-bottom: 0.75rem;
+}
+
+.toast-banner {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 40;
+}
+
+.iterate-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin-top: 0.75rem;
+}
+
+.tpl-custom {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.file-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+
+.create-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.create-inputs h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.jobs-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+button.danger {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  color: var(--danger);
+}
+
+button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 28%, transparent);
+}
+
+.local-preview .viewport {
+  height: 200px;
+}
+
+.viewport-shell.compact .viewport {
+  height: 200px;
 }
 
 .panel h2,
@@ -1210,7 +1342,8 @@ button.linkish:hover:not(:disabled) {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  /* Above the mobile jobs drawer (z-index 60) so All jobs / Settings / etc. are not buried. */
+  z-index: 80;
   display: grid;
   place-items: center;
   padding: 1rem;
@@ -1249,6 +1382,10 @@ button.linkish:hover:not(:disabled) {
 
 .modal-close {
   padding: 0.3rem 0.65rem;
+}
+
+.settings-sections {
+  margin: 0.35rem 0 0.5rem;
 }
 
 .settings-section {
@@ -2030,6 +2167,27 @@ button.linkish:hover:not(:disabled) {
   font-size: 0.75rem;
 }
 
+.usage-meter-updated {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.usage-meter-about {
+  margin: 0.25rem 0 0;
+}
+
+.usage-meter-about summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--muted);
+  user-select: none;
+}
+
+.usage-meter-about .hint {
+  margin-top: 0.35rem;
+}
+
 .usage-meter-error {
   margin: 0.35rem 0 0;
   color: var(--danger);
@@ -2193,7 +2351,7 @@ button.linkish:hover:not(:disabled) {
 
 .align-error {
   font-size: 0.74rem;
-  color: var(--bad, #dc2626);
+  color: var(--danger);
 }
 
 .nudge-controls {

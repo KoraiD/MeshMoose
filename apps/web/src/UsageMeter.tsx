@@ -76,11 +76,16 @@ export function UsageMeter({
           </strong>
         </div>
       </div>
-      <p className="hint">
-        Zoo meters most billable work by the second. Recent sample is from your account
-        (last ~dozen calls), not this job alone. Updated{' '}
-        {formatUsageUpdatedAt(usageState.lastFetchedAt).toLowerCase()}.
+      <p className="hint usage-meter-updated">
+        Last updated: {formatUsageUpdatedAt(usageState.lastFetchedAt)}
       </p>
+      <details className="usage-meter-about">
+        <summary>About usage</summary>
+        <p className="hint">
+          Zoo meters most billable work by the second. Recent sample is from your account
+          (last ~dozen calls), not this job alone.
+        </p>
+      </details>
       {usageState.error ? (
         <p className="usage-meter-error">{usageState.error}</p>
       ) : null}

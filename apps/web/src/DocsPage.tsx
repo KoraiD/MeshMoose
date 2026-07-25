@@ -1,16 +1,19 @@
 const REPO_URL = 'https://github.com/KoraiD/MeshMoose'
 
 type Props = {
-  onBack: () => void
+  onBack?: () => void
+  embedded?: boolean
 }
 
-export function DocsPage({ onBack }: Props) {
+export function DocsPage({ onBack, embedded = false }: Props) {
   return (
     <div className="docs-page">
       <header className="docs-top">
-        <button type="button" className="linkish" onClick={onBack}>
-          ← Back to app
-        </button>
+        {!embedded && onBack ? (
+          <button type="button" className="linkish" onClick={onBack}>
+            ← Back to app
+          </button>
+        ) : null}
         <h1>Documentation</h1>
         <p className="muted">
           User guide, HTTP API, and CLI for MeshMoose — local multimodal reconstruction.
@@ -45,18 +48,16 @@ export function DocsPage({ onBack }: Props) {
             <code>partial-stand</code>, or <code>brick-wall</code>).
           </li>
           <li>
-            Watch the job in the sidebar or the <strong>List</strong> (Jobs) modal. Status
-            updates automatically while the app is open. Open <strong>Compare</strong> for
-            side-by-side or before/after overlay meshes (selectable reference, Align +
-            deviation heatmap), <strong>Live engine</strong> for Zoo WebRTC preview, or{' '}
-            <strong>Workbench</strong> for logs, assistant notes, metrics, active time, and
-            KCL (including diff vs initial).
+            Watch the job in the sidebar or <strong>All jobs</strong>. On small screens, open
+            the Jobs drawer. Status updates automatically while the app is open. Use{' '}
+            <strong>Compare</strong> (overlay, Align tools, optional nudge),{' '}
+            <strong>Live engine</strong>, <strong>Workbench</strong> (logs, metrics, KCL), or{' '}
+            <strong>Iterate</strong> (prompt history, refine, Apply finish).
           </li>
           <li>
             Rename the job and add up to five tags from the library (custom tags appear first
-            in suggestions). Filter jobs by name, ID, tag, state, or time. Refine with text,
-            optional new photos/meshes, or a saved snippet. Use <strong>Apply finish</strong>{' '}
-            for a PBR material preset without an Agent call. Download STL, STEP, or 3MF.
+            in suggestions). Filter jobs by name, ID, tag, state, or time. Download STL, STEP,
+            or 3MF from Compare.
           </li>
           <li>
             Failed jobs can be <strong>Retry</strong>’d from the UI or{' '}
