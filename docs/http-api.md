@@ -50,6 +50,8 @@ The API forwards this token to Zoo and **does not** persist it. Public routes: `
 | Photos | JPG, JPEG, PNG, WebP, GIF, HEIC, HEIF — HEIC/HEIF → JPEG; GIF → PNG before Agent attach |
 | Meshes | STL, PLY, OBJ, 3MF, XYZ/TXT — converted to STL for the Agent (XYZ → convex hull) |
 
+Agent `mode` on create / from-demo: `thoughtful` (default), `fast`, `auto`, or `zookeeper_pro`. The web New-job modal exposes the first three.
+
 ## Outputs (typical job artifacts)
 
 Under `outputs/`: `main.kcl`, `generated.stl`, `generated.step`, `generated.3mf`, `reference.stl`, `metrics.json`, `job.log`, agent snapshot JPEGs.

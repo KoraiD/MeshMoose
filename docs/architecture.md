@@ -49,7 +49,7 @@ Authenticated job files (`/jobs/{id}/files/...`) require the same Bearer header.
 | API key menu | Token, Zoo usage (credits + recent calls), optional 10‑minute usage auto-refresh |
 | Settings | Theme, job finish notifications, tag library, custom refine snippets, prompt templates, app log |
 | New job modal | Title, prompt templates, mode, photos, meshes, local STL preview, demos |
-| Job detail | Rename / tags; Compare / Live engine / Workbench; prompt history; refine (+ snippets); Apply finish |
+| Job detail | Rename / tags; Compare / Live engine / Workbench / Iterate (prompt history, refine + snippets, Apply finish) |
 | Docs page | User guide, API/CLI summary |
 
 Browser-only libraries (localStorage / IndexedDB): tag vocabulary, refine snippets with attachments, usage auto-refresh preference, notification preference, theme.
@@ -99,7 +99,7 @@ Bundled today:
 
 ## Refine
 
-Reopen ML Copilot with `conversation_id` when known, send refine text + `current_files["main.kcl"]`. Optionally multipart-upload new photos/meshes; meshes are preprocessed to STL, attached as `additional_files`, and can refresh `reference.stl`. Then re-export and re-measure.
+Reopen ML Copilot with `conversation_id` when known, send refine text + `current_files["main.kcl"]`. Optionally multipart-upload new photos/meshes; meshes are preprocessed to STL and attached as Agent guidance (`additional_files`). Refine does **not** overwrite `outputs/reference.stl` — Compare reference is chosen via `GET` / `PUT /jobs/{id}/reference`. Then re-export and re-measure.
 
 The UI can attach a **custom refine snippet** (text + optional stored photos/meshes from IndexedDB) into the refine form.
 

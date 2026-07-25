@@ -984,17 +984,54 @@ button.danger:hover:not(:disabled) {
 .section-toggle {
   width: 100%;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  background: transparent;
-  border: none;
-  padding: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
   text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.section-toggle:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.section-toggle.open {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.section-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.section-toggle-chevron {
+  display: inline-block;
+  width: 0.85rem;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--muted);
 }
 
 .section-toggle h3 {
   margin: 0;
+  font-size: 1rem;
+}
+
+.section-toggle-meta {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent);
 }
 
 .empty-detail {
@@ -1060,12 +1097,20 @@ button.danger:hover:not(:disabled) {
 }
 
 .prompt-history {
-  margin: 1rem 0;
+  margin: 0;
+}
+
+.prompt-history #prompt-history-panel {
+  border: 1px solid var(--line);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  padding: 0.65rem 0.85rem 0.85rem;
+  background: var(--code-bg);
 }
 
 .prompt-list {
   list-style: none;
-  margin: 0.5rem 0 0;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;

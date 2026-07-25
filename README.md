@@ -12,7 +12,14 @@ Built for the [Zoo API Makeathon](https://zoo.dev/events/api-makeathon) (July–
 
 ## Why
 
-Photos alone under-specify geometry. Quick meshes alone are frozen triangles. MeshMoose combines **photo + mesh + prompt**, asks Zoo’s Agent to **recreate parametric KCL** (not edit the import), then lets you compare, finish, export, and refine — from the **browser UI**, **HTTP API**, or **`meshmoose` CLI**.
+DIY makers often start with a **phone photo** and a **quick mesh** (photogrammetry app, cheap scanner, or a downloaded STL). Neither input is enough on its own:
+
+- **Photos** under-specify dimensions, hidden faces, and how parts fit together.
+- **Meshes** are frozen triangles — fine to print or nudge as a blob, awkward to redesign as real CAD (change wall thickness, add clearance, swap a finish).
+
+Remodeling the whole part by hand in traditional CAD is slow when the goal is “this stand, but thicker walls and a brushed finish.” MeshMoose targets that gap: you supply **photo + mesh + a plain-language prompt**, and Zoo’s Agent is asked to **recreate parametric KCL** that captures design intent — **not** to edit the imported mesh.
+
+After reconstruction you can **trust the result** (Compare overlay, Align, deviation heatmap), preview in the **live Engine**, **Apply finish** without another Agent call, export **STL / STEP / 3MF**, and **iterate** with refine messages. Incomplete or noisy scans are first-class (see the `partial-stand` demo and `meshmoose mesh corrupt`). The same pipeline runs from the **browser UI**, local **HTTP API**, or **`meshmoose` CLI** — local-first jobs on disk, Zoo token only in the client.
 
 ## Zoo APIs used
 
@@ -61,16 +68,15 @@ npm run dev
 - Job status stays fresh while the app is open (SSE + short poll while jobs are running)
 - Job **rename** and up to **5 tags** from a shared tag library (Settings + job detail); sidebar / Jobs modal filter by name, ID, tag, state, time
 - **API key** menu: Zoo token, usage credits / recent calls, optional **10‑minute auto-refresh** of usage while the app is open
-- **Settings**: theme (light / dark / system), job finish notifications, tag library, custom refine snippets (text + optional photo/mesh attachments), prompt templates, app log
+- **Settings**: theme (light / dark / system), job finish notifications, tag library, custom refine snippets (text + optional photo/mesh attachments), prompt templates, app log (Diagnostics)
 - Browser **notifications** when a job succeeds or fails (opt-in; useful for parallel runs)
-- New-job modal: title, templates, agent mode (`thoughtful` / `fast` / `auto` / `zookeeper_pro`), multi photo + mesh, local STL preview, packaged demos
+- New-job modal: title, templates, agent mode (`thoughtful` / `fast` / `auto`; API/CLI also accept `zookeeper_pro`), multi photo + mesh, local STL preview, packaged demos
 - **Photos:** JPG / PNG / WebP / GIF / HEIC / HEIF (HEIC→JPEG, GIF→PNG for Zoo)
 - **Meshes:** STL / PLY / OBJ / 3MF / XYZ (normalized to STL for the Agent; XYZ → convex hull)
-- Compare: side-by-side or **before/after opacity overlay**; selectable reference mesh; **Align + deviation heatmap**; download STL / STEP / **3MF**
+- Compare: side-by-side or **before/after opacity overlay**; selectable reference mesh; **Align tools** (Align / heatmap / Reset) + optional **manual nudge**; download STL / STEP / **3MF**
 - Workbench: photos, filtered logs, assistant markdown, KCL (current / diff vs initial), metrics (volume mm³ / cm³ / in³), **active time** (pipeline run time only)
-- Live Engine: WebRTC preview — zoom / pan / rotate / scale, camera views, edges / x-ray / explode, snaps, selection, multi-format export; open sessions listed in the Jobs modal
-- Refine with text, optional re-attached photos/meshes, or a saved refine snippet
-- **Apply finish** PBR presets (KCL `appearance`) without an Agent call
+- Iterate: prompt history, refine (text + optional photos/meshes or a saved snippet), **Apply finish** PBR presets (KCL `appearance`, no Agent call)
+- Live Engine: WebRTC preview — zoom / pan / rotate / scale, camera views, edges / x-ray / explode, snaps, selection, multi-format export (beyond job artifacts); open sessions listed in the Jobs modal
 - Engine export **retries** transient Zoo `EngineHangup` errors; job errors are sanitized for the UI
 - Offline **`meshmoose mesh corrupt`** to simulate incomplete scans for demos/tests
 - In-app **Documentation** + HTTP API + CLI

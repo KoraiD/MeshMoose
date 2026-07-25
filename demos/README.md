@@ -37,7 +37,7 @@ demos/
 | `source_url` | no | Link to the original design / product page |
 | `source_label` | no | Link text (defaults to “Original design”) |
 | `prompt` | yes | Sent to the Agent (overrideable when starting) |
-| `mode` | no | `thoughtful` (default), `fast`, or `auto` |
+| `mode` | no | `thoughtful` (default), `fast`, or `auto` (UI). The API also accepts `zookeeper_pro` when starting a job/demo. |
 | `photos` | yes | Filenames relative to the demo folder (at least one) |
 | `meshes` | yes | Filenames relative to the demo folder (at least one) |
 
