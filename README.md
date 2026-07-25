@@ -76,7 +76,7 @@ npm run dev
 - Compare: side-by-side or **before/after opacity overlay**; selectable reference mesh; **Align tools** (Align / heatmap / Reset) + optional **manual nudge**; download STL / STEP / **3MF**
 - Workbench: photos, filtered logs, assistant markdown, read-only KCL (current / diff vs initial), metrics (volume mm³ / cm³ / in³), **active time** (pipeline run time only)
 - Iterate: prompt history, **KCL versions** (restore archived edits), refine (text + optional photos/meshes or a saved snippet), **Apply finish** PBR presets (KCL `appearance`, no Agent call)
-- Live Engine: WebRTC preview — zoom / pan / rotate / scale, camera views, edges / x-ray / explode, snaps, selection, multi-format export (beyond job artifacts); **KCL editor** below the viewport (edit draft, **Run** without reconnect, **Save** with `kcl_history/` + optional mesh re-export); open sessions listed in the Jobs modal after Start
+- Live Engine: WebRTC preview — zoom / pan / rotate / scale, camera views, edges / x-ray / explode, snaps, selection, multi-format export (beyond job artifacts); **KCL editor** below the viewport (edit draft, parse/lint squiggles, **Format**, **Run** without reconnect, **Save** with `kcl_history/` + optional mesh re-export); open sessions listed in the Jobs modal after Start
 - Engine export **retries** transient Zoo `EngineHangup` errors; job errors are sanitized for the UI
 - Offline **`meshmoose mesh corrupt`** to simulate incomplete scans for demos/tests
 - In-app **Documentation** + HTTP API + CLI

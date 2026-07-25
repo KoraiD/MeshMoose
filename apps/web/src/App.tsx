@@ -2955,43 +2955,6 @@ export default function App() {
         </div>
       ) : null}
 
-      {deleteConfirmId ? (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setDeleteConfirmId(null)
-          }}
-        >
-          <div
-            className="modal delete-confirm"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-job-title"
-          >
-            <h2 id="delete-job-title">
-              Delete{' '}
-              {jobs.find((j) => j.id === deleteConfirmId)?.title ??
-                (job?.id === deleteConfirmId ? job.title : deleteConfirmId)}
-              ?
-            </h2>
-            <p className="muted">This removes the job and all its files.</p>
-            <div className="modal-actions">
-              <button type="button" onClick={() => setDeleteConfirmId(null)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="danger"
-                onClick={() => void confirmDeleteJob()}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       <ApiAccountModal
         open={apiAccountOpen}
         onClose={() => setApiAccountOpen(false)}
@@ -3033,6 +2996,44 @@ export default function App() {
         onCancelJob={(id) => void onCancelJobById(id)}
         onStopEngine={onStopEngine}
       />
+
+      {/* Rendered after All jobs so it stacks above; elevated z-index as a belt-and-suspenders. */}
+      {deleteConfirmId ? (
+        <div
+          className="modal-backdrop elevated"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDeleteConfirmId(null)
+          }}
+        >
+          <div
+            className="modal delete-confirm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-job-title"
+          >
+            <h2 id="delete-job-title">
+              Delete{' '}
+              {jobs.find((j) => j.id === deleteConfirmId)?.title ??
+                (job?.id === deleteConfirmId ? job.title : deleteConfirmId)}
+              ?
+            </h2>
+            <p className="muted">This removes the job and all its files.</p>
+            <div className="modal-actions">
+              <button type="button" onClick={() => setDeleteConfirmId(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => void confirmDeleteJob()}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

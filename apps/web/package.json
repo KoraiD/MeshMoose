@@ -18,8 +18,10 @@
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
     "@codemirror/language": "^6.12.4",
+    "@codemirror/lint": "^6.9.7",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.6",
+    "@kittycad/kcl-wasm-lib": "^0.1.170",
     "@kittycad/lib": "^4.3.12",
     "@kittycad/web-view": "^1.2.5",
     "@lezer/highlight": "^1.2.3",

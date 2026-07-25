@@ -118,6 +118,8 @@ The Live Engine tab includes a CodeMirror **KCL editor** stacked below the WebRT
 - **Run** — `executor.submit(draft)` on the existing RTC session (no reconnect on each edit).
 - **Save** — `PUT /jobs/{id}/kcl` writes `outputs/main.kcl`, archives the previous file into `outputs/kcl_history/`, updates `main.prev.kcl`, and appends a prompt-history `edit` entry. Optional **Also re-export meshes** queues STL/STEP/3MF + measure (same path as finish export).
 - **Discard** — resets the draft to the committed file on disk.
+- **Format** — Zoo `recast_wasm` pretty-print (requires a successful parse).
+- **Diagnostics** — `@kittycad/kcl-wasm-lib` `parse_wasm` + `kcl_lint` drive CodeMirror lint squiggles (no Engine minutes).
 
 The **Iterate** tab lists archived versions (`GET /jobs/{id}/kcl/versions`) with **Restore** (`POST /jobs/{id}/kcl/restore`) and an optional re-export checkbox. Workbench `main.kcl` stays read-only (committed view / diff).
 

@@ -7,6 +7,7 @@ import { hexToRgb01, parseLastAppearance } from './appearance'
 import { getApiToken, saveJobKcl, type Job } from './api'
 import { appLog } from './appLog'
 import { KclEditor } from './KclEditor'
+import { formatKcl } from './kclWasm'
 import {
   IconCamera,
   IconCode,
@@ -152,6 +153,7 @@ export function ZooEngineView({
   const dirty = draft !== committed
   const [saveBusy, setSaveBusy] = useState(false)
   const [runBusy, setRunBusy] = useState(false)
+  const [formatBusy, setFormatBusy] = useState(false)
   const [editorOpen, setEditorOpen] = useState(true)
   const [reexportOnSave, setReexportOnSave] = useState(false)
 
@@ -647,6 +649,27 @@ export function ZooEngineView({
   function onDiscardDraft() {
     setDraft(committed)
     setBusyNote('Discarded local edits')
+  }
+
+  async function onFormatDraft() {
+    const source = draftRef.current
+    if (!source.trim()) {
+      setError('KCL is empty — nothing to format')
+      return
+    }
+    setFormatBusy(true)
+    setError(null)
+    try {
+      const formatted = await formatKcl(source)
+      setDraft(formatted)
+      setBusyNote(
+        formatted === source ? 'Already formatted' : 'Formatted KCL with Zoo recast',
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setFormatBusy(false)
+    }
   }
 
   useEffect(() => {
@@ -1562,6 +1585,14 @@ export function ZooEngineView({
               </button>
               <button
                 type="button"
+                disabled={!draft.trim() || formatBusy}
+                onClick={() => void onFormatDraft()}
+                title="Pretty-print with Zoo KCL recast (requires valid parse)"
+              >
+                {formatBusy ? 'Formatting…' : 'Format'}
+              </button>
+              <button
+                type="button"
                 className="linkish"
                 disabled={!draft.trim()}
                 onClick={() => {
@@ -1589,10 +1620,10 @@ export function ZooEngineView({
               </label>
             </div>
             <p className="hint engine-editor-hint">
-              Run executes the draft in the live session (no reconnect). Save writes{' '}
-              <code>main.kcl</code>, archives the previous file under{' '}
-              <code>kcl_history/</code>, and optionally re-exports STL/STEP/3MF for Compare
-              (uses Engine minutes). Restore older versions from the Iterate tab.
+              Run executes the draft in the live session (no reconnect). The editor uses Zoo’s
+              KCL WASM for parse/lint squiggles and Format (recast). Save writes{' '}
+              <code>main.kcl</code>, archives under <code>kcl_history/</code>, and optionally
+              re-exports STL/STEP/3MF for Compare. Restore older versions from Iterate.
             </p>
             <KclEditor value={draft} onChange={setDraft} ariaLabel="main.kcl editor" />
           </div>

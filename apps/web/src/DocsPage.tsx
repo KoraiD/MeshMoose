@@ -52,9 +52,10 @@ export function DocsPage({ onBack, embedded = false }: Props) {
             Watch the job in the sidebar or <strong>All jobs</strong>. On small screens, open
             the Jobs drawer. Status updates automatically while the app is open. Use{' '}
             <strong>Compare</strong> (overlay, Align tools, optional nudge),{' '}
-            <strong>Live engine</strong> (preview + KCL editor: Run / Save / optional
-            re-export), <strong>Workbench</strong> (logs, metrics, read-only KCL), or{' '}
-            <strong>Iterate</strong> (prompt history, KCL versions, refine, Apply finish).
+            <strong>Live engine</strong> (preview + KCL editor: parse/lint, Format, Run /
+            Save / optional re-export), <strong>Workbench</strong> (logs, metrics, read-only
+            KCL), or <strong>Iterate</strong> (prompt history, KCL versions, refine, Apply
+            finish).
           </li>
           <li>
             Rename the job and add up to five tags from the library (custom tags appear first

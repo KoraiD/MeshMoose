@@ -1529,6 +1529,11 @@ button.linkish:hover:not(:disabled) {
   animation: rise 0.2s ease-out both;
 }
 
+/* Confirmations opened from another modal (e.g. Delete from All jobs). */
+.modal-backdrop.elevated {
+  z-index: 100;
+}
+
 .modal {
   width: min(720px, 100%);
   max-height: min(90vh, 900px);

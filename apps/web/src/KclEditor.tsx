@@ -1,8 +1,10 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { linter, lintGutter, type Diagnostic } from '@codemirror/lint'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers, placeholder } from '@codemirror/view'
 import { useEffect, useRef } from 'react'
 import { kclLanguage } from './kclLanguage'
+import { analyzeKcl } from './kclWasm'
 
 type Props = {
   value: string
@@ -22,6 +24,8 @@ function editorTheme() {
   const bg = cssVar('--code-bg', '#f8fafc')
   const line = cssVar('--line', '#d5dbe5')
   const accent = cssVar('--accent', '#0f766e')
+  const danger = cssVar('--danger', '#b91c1c')
+  const warn = cssVar('--warn', '#b45309')
   const mono = cssVar('--mono', 'ui-monospace, SFMono-Regular, Menlo, monospace')
   return EditorView.theme(
     {
@@ -54,10 +58,50 @@ function editorTheme() {
       '.cm-placeholder': {
         color: muted,
       },
+      '.cm-diagnostic-error': {
+        borderBottom: `1px wavy ${danger}`,
+      },
+      '.cm-diagnostic-warning': {
+        borderBottom: `1px wavy ${warn}`,
+      },
+      '.cm-lintRange-error': {
+        backgroundImage: 'none',
+        borderBottom: `1px wavy ${danger}`,
+      },
+      '.cm-lintRange-warning': {
+        backgroundImage: 'none',
+        borderBottom: `1px wavy ${warn}`,
+      },
     },
     { dark: document.documentElement.dataset.theme === 'dark' },
   )
 }
+
+const kclLinter = linter(
+  async (view): Promise<Diagnostic[]> => {
+    const source = view.state.doc.toString()
+    if (!source.trim()) return []
+    try {
+      const issues = await analyzeKcl(source)
+      return issues.map((issue) => ({
+        from: issue.from,
+        to: Math.max(issue.to, issue.from),
+        severity: issue.severity,
+        message: issue.message,
+      }))
+    } catch (err) {
+      return [
+        {
+          from: 0,
+          to: Math.min(1, source.length),
+          severity: 'error',
+          message: err instanceof Error ? err.message : 'KCL analysis failed',
+        },
+      ]
+    }
+  },
+  { delay: 450 },
+)
 
 export function KclEditor({ value, onChange, ariaLabel }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -73,8 +117,10 @@ export function KclEditor({ value, onChange, ariaLabel }: Props) {
       doc: value,
       extensions: [
         lineNumbers(),
+        lintGutter(),
         history(),
         kclLanguage,
+        kclLinter,
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         EditorView.lineWrapping,
         placeholder('// Edit main.kcl — Save to disk, Run to execute live'),
