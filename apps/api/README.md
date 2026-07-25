@@ -17,7 +17,7 @@ Or `npm run dev:api` from the repo root.
 
 ## Surface
 
-- Jobs: create, patch (title/tags), retry, refine, finish, cancel, delete, SSE events (`?after=`), artifacts
+- Jobs: create, patch (title/tags), retry, refine, finish, save/restore KCL (`/jobs/{id}/kcl` + versions), cancel, delete, SSE events (`?after=`), artifacts
 - Compare helpers: reference select, ICP align + deviation
 - Timing: `active_ms` / `run_started_at` on job meta
 - Export: retries retryable Zoo Engine hangups; sanitized job errors

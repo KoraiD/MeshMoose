@@ -1,10 +1,16 @@
 #!/usr/bin/env node
-/** Copy Zoo KCL wasm into apps/web/public for @kittycad/web-view. */
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
+/** Copy Zoo KCL wasm into apps/web/public for @kittycad/web-view and kclWasm. */
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+/**
+ * Prefer the hoisted package used by @kittycad/lib's embedded WebRTC worker.
+ * That worker is compiled against a specific kcl-wasm ABI (currently 0.1.168);
+ * public/kcl_wasm_lib_bg.wasm must match those import names or Live Engine fails
+ * before any Zoo websocket connects.
+ */
 const candidates = [
   join(root, 'node_modules/@kittycad/kcl-wasm-lib/kcl_wasm_lib_bg.wasm'),
   join(root, 'apps/web/node_modules/@kittycad/kcl-wasm-lib/kcl_wasm_lib_bg.wasm'),
@@ -19,4 +25,8 @@ const destDir = join(root, 'apps/web/public')
 mkdirSync(destDir, { recursive: true })
 const dest = join(destDir, 'kcl_wasm_lib_bg.wasm')
 copyFileSync(src, dest)
-console.log(`[copy-wasm] ${src} → ${dest}`)
+const pkgJson = join(dirname(src), 'package.json')
+const ver = existsSync(pkgJson)
+  ? JSON.parse(readFileSync(pkgJson, 'utf8')).version
+  : '?'
+console.log(`[copy-wasm] ${src} → ${dest} (kcl-wasm-lib@${ver})`)

@@ -39,6 +39,9 @@ The API forwards this token to Zoo and **does not** persist it. Public routes: `
 | `GET` | `/jobs/{id}/reference` | yes | Active Compare reference + available mesh sources |
 | `PUT` | `/jobs/{id}/reference` | yes | Set Compare reference (`{ "source": "inputs/…" \| "outputs/reference.stl" }`) |
 | `POST` | `/jobs/{id}/align` | yes | ICP-align generated onto reference; returns transform + deviation stats/heatmap data |
+| `PUT` | `/jobs/{id}/kcl` | yes | Save edited `main.kcl` (`{ "kcl", "note"?, "reexport"? }`); archives previous into `kcl_history/`; optional mesh re-export |
+| `GET` | `/jobs/{id}/kcl/versions` | yes | List archived KCL versions (newest first) |
+| `POST` | `/jobs/{id}/kcl/restore` | yes | Restore a version (`{ "version_id", "note"?, "reexport"? }`) |
 | `GET` | `/jobs/{id}/artifacts` | yes | Artifact index |
 | `GET` | `/jobs/{id}/files/{path}` | yes | Download an artifact file |
 | `GET` | `/zoo/usage` | yes | Zoo credits + recent calls (sanitized) |
@@ -85,6 +88,29 @@ curl -sS -X POST "http://127.0.0.1:8787/jobs/$JOB_ID/finish" \
   -H "Authorization: Bearer $ZOO_API_TOKEN" \
   -F "preset=brushed-aluminum"
 ```
+
+## Save KCL (manual edit)
+
+```bash
+curl -sS -X PUT "http://127.0.0.1:8787/jobs/$JOB_ID/kcl" \
+  -H "Authorization: Bearer $ZOO_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"kcl":"part = startSketchOn(XY)\n  |> circle(center = [0, 0], radius = 5)\n  |> extrude(length = 2)\n","note":"thicker extrude","reexport":false}'
+```
+
+Writes `outputs/main.kcl`, copies the previous file to `outputs/main.prev.kcl` and `outputs/kcl_history/<id>.kcl` (index capped at 20), and appends a prompt-history `edit` entry. Set `"reexport": true` to queue STL/STEP/3MF export + measure (job enters `exporting`). Save and restore are rejected with **409** while the job is running.
+
+```bash
+curl -sS "http://127.0.0.1:8787/jobs/$JOB_ID/kcl/versions" \
+  -H "Authorization: Bearer $ZOO_API_TOKEN"
+
+curl -sS -X POST "http://127.0.0.1:8787/jobs/$JOB_ID/kcl/restore" \
+  -H "Authorization: Bearer $ZOO_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"version_id":"VERSION_ID","reexport":true}'
+```
+
+Restore writes the archived snapshot back to `main.kcl` (and archives the overwritten file). With `"reexport": true`, the job enters `exporting` then `measuring` (same path as Apply finish / save re-export).
 
 ## Align meshes
 

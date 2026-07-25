@@ -49,7 +49,7 @@ Authenticated job files (`/jobs/{id}/files/...`) require the same Bearer header.
 | API key menu | Token, Zoo usage (credits + recent calls), optional 10‑minute usage auto-refresh |
 | Settings | Theme, job finish notifications, tag library, custom refine snippets, prompt templates, app log |
 | New job modal | Title, prompt templates, mode, photos, meshes, local STL preview, demos |
-| Job detail | Rename / tags; Compare / Live engine / Workbench / Iterate (prompt history, refine + snippets, Apply finish) |
+| Job detail | Rename / tags; Compare / Live engine (preview + KCL editor) / Workbench / Iterate (prompt history, refine + snippets, Apply finish) |
 | Docs page | User guide, API/CLI summary |
 
 Browser-only libraries (localStorage / IndexedDB): tag vocabulary, refine snippets with attachments, usage auto-refresh preference, notification preference, theme.
@@ -62,10 +62,12 @@ Per-job directory under `data/jobs/<id>/` (gitignored):
 meta.json          title, tags[], prompts[], status, active_ms, run_started_at, …
 events.jsonl
 inputs/            photos + meshes
-outputs/           reference.stl, main.kcl, generated.stl/.step/.3mf, metrics.json, job.log, agent_*.jpeg
+outputs/           reference.stl, main.kcl, main.initial.kcl, main.prev.kcl,
+                   kcl_history/<id>.kcl + index.json (up to 20),
+                   generated.stl/.step/.3mf, metrics.json, job.log, agent_*.jpeg
 ```
 
-`meta.prompts[]` records the initial prompt, each refine message, and finish applications. Jobs without `prompts[]` are hydrated from `job.log` when loaded.
+`meta.prompts[]` records the initial prompt, each refine message, finish applications, and manual KCL edits (`role: "edit"`). Jobs without `prompts[]` are hydrated from `job.log` when loaded.
 
 Volume in `metrics.json` is stored in **cm³**; the UI can display mm³ / cm³ / in³.
 
@@ -107,6 +109,28 @@ The UI can attach a **custom refine snippet** (text + optional stored photos/mes
 
 `POST /jobs/{id}/finish` with a preset id from `GET /finishes`. MeshMoose rewrites the existing `appearance(...)` assignment in `main.kcl` (or pipes onto the last solid assignment), appends a prompt-history entry, and re-exports. The Live Engine tab also applies parsed appearance params over WebRTC when connected.
 
-## Live Engine preview
+## Live Engine preview + KCL editor
 
-The web UI mounts `@kittycad/web-view` (`ZooWebView`) against the user’s Bearer token to WebRTC-stream the Zoo Engine executing `main.kcl`. After `ready`, MeshMoose sends modeling commands for zoom / pan / rotate / scale, camera presets, edge visibility, x-ray, explode, `export3d`, PNG snapshots, click selection, and touch gestures. Mesh compare (Three.js) remains the default offline view; live engine is opt-in (uses API minutes). Open sessions are registered in-memory so the Jobs modal can stop them. WASM is copied to `apps/web/public/` via `npm postinstall` (`scripts/copy-wasm.mjs`).
+The web UI mounts `@kittycad/web-view` (`ZooWebView`) with an `@kittycad/lib` `Client` (embedded WebRTC worker) and the user’s Bearer token to stream the Zoo Engine. After `ready`, MeshMoose sends modeling commands for zoom / pan / rotate / scale, camera presets, edge visibility, x-ray, explode, `export3d`, PNG snapshots, click selection, and touch gestures. Mesh compare (Three.js) remains the default offline view; live engine is opt-in (Engine minutes while connected). Visiting the **Live Engine** tab alone does **not** open a session or list one in the Jobs modal — only **Start** / **Start + run** does.
+
+### WASM ABI (must match)
+
+`apps/web/public/kcl_wasm_lib_bg.wasm` is fetched by the `@kittycad/lib` WebRTC worker **and** used by the CodeMirror editor (`parse_wasm` / `kcl_lint` / `recast_wasm`). It **must** be `@kittycad/kcl-wasm-lib@0.1.168` to match `@kittycad/lib@4.3.12` (the worker embeds 0.1.168 wasm-bindgen glue). Pin both together: `apps/web` depends on `@kittycad/lib@4.3.12` + `@kittycad/kcl-wasm-lib@0.1.168`, and root `package.json` `overrides` force the same for transitive deps (e.g. via `@kittycad/web-view`). `npm postinstall` runs `scripts/copy-wasm.mjs` (prefers hoisted `node_modules/@kittycad/kcl-wasm-lib/`, logs `kcl-wasm-lib@<version>`). A mismatched binary fails Live Engine at worker init before any Zoo websocket connects. After `npm install`, hard-refresh the browser so Vite does not serve a cached `.wasm`. Bump lib and wasm together only after validating the worker ABI.
+
+The Live Engine tab includes a CodeMirror **KCL editor** stacked below the WebRTC viewport, editing a local draft of `main.kcl`:
+
+- **Run** — `executor.submit(draft)` on the existing RTC session (no reconnect on each edit).
+- **Save** — `PUT /jobs/{id}/kcl` writes `outputs/main.kcl`, archives the previous file into `outputs/kcl_history/`, updates `main.prev.kcl`, and appends a prompt-history `edit` entry. Optional **Also re-export meshes** queues STL/STEP/3MF + measure (same path as finish export).
+- **Discard** — resets the draft to the committed file on disk.
+- **Format** — Zoo `recast_wasm` pretty-print (requires a successful parse).
+- **Diagnostics** — `@kittycad/kcl-wasm-lib` `parse_wasm` + `kcl_lint` drive CodeMirror lint squiggles (no Engine minutes).
+
+The **Iterate** tab lists archived versions (`GET /jobs/{id}/kcl/versions`) with **Restore** (`POST /jobs/{id}/kcl/restore`) and an optional re-export checkbox. Restore is allowed whenever the job is idle (even if `main.kcl` is temporarily missing from the UI). Workbench `main.kcl` stays read-only (committed view / diff).
+
+## Manual KCL save / restore
+
+- `PUT /jobs/{id}/kcl` — `{ "kcl", "note"?, "reexport"? }`
+- `GET /jobs/{id}/kcl/versions` — newest-first archive list
+- `POST /jobs/{id}/kcl/restore` — `{ "version_id", "note"?, "reexport"? }`
+
+Rejected while the job is running (`409`). With `"reexport": true`, the job enters `exporting` then `measuring`. CLI: `meshmoose jobs save-kcl` / `kcl-versions` / `kcl-restore`.

@@ -18,7 +18,7 @@ MeshMoose soft-caps create prompts at **8000** characters and nudges around **20
 - Extra `.md` files are **not** a documented reconstruction input for ML Copilot. Design intent belongs in the text prompt (or MeshMoose stores agent narrative as local `assistant.md`). Markdown is used elsewhere in Zoo’s docs/skills ecosystem, not as a special CAD-brief attachment type.
 - Agent emits intermediate snapshot JPEGs and uses an `edit_kcl_code` tool loop.
 - **Continuing a conversation** for refine: open `ml_copilot_ws(conversation_id=…)` and send a user message with updated `current_files`, optionally plus new `additional_files`.
-- **`@kittycad/web-view`**: WebRTC Engine preview for executed KCL in the browser (requires serving `kcl_wasm_lib_bg.wasm`).
+- **Live Engine**: `@kittycad/web-view` + `@kittycad/lib` WebRTC worker. Requires serving `kcl_wasm_lib_bg.wasm` from `@kittycad/kcl-wasm-lib@0.1.168` (ABI-matched to `@kittycad/lib@4.3.12`). The same public file powers editor parse/lint/format.
 - **Engine** export via `zoo-kcl` (`Stl`, `Step`) works when the process environment has `ZOO_API_TOKEN`.
 - **File Format API** can measure STL for volume / surface area / mass / center-of-mass (mass needs density).
 - **Account usage**: `GET /user/payment/balance` and `GET /user/api-calls` are free. MeshMoose proxies them as `GET /zoo/usage` and sanitizes the payload (no email, IP, query strings).
@@ -50,6 +50,10 @@ MeshMoose soft-caps create prompts at **8000** characters and nudges around **20
 
 8. **Env var naming**  
    Zoo tooling and MeshMoose accept `ZOO_API_TOKEN` (preferred). The CLI also reads `ZOO_SECRET_KEY` and `MESHMOOSE_TOKEN`. Export sets `ZOO_API_TOKEN` for `zoo-kcl`.
+
+9. **KCL WASM ABI mismatch**  
+   `@kittycad/lib` embeds wasm-bindgen glue for a specific `kcl-wasm-lib` build. If `public/kcl_wasm_lib_bg.wasm` is not **0.1.168**, Live Engine fails at worker init (`__wbg_onOperation_… is not a Function`) before connecting to Zoo.  
+   **Workaround:** keep root `overrides` + `apps/web` pins on `@kittycad/lib@4.3.12` and `kcl-wasm-lib@0.1.168`, re-run `npm install` (copy-wasm), hard-refresh the browser. Do not force a newer wasm until Zoo publishes a matching `@kittycad/lib`.
 
 ## Wishlist
 

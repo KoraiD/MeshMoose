@@ -1,6 +1,6 @@
 /** Lightweight syntax helpers for Workbench panels (no heavy highlighter deps). */
 
-const KCL_KEYWORDS = new Set([
+export const KCL_KEYWORDS = new Set([
   'fn',
   'return',
   'const',

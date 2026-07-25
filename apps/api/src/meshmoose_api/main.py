@@ -26,7 +26,7 @@ from meshmoose_api.align import align_meshes
 from meshmoose_api.config import ROOT, configure_logging, data_dir
 from meshmoose_api.finishes import get_finish_preset, list_finish_presets
 from meshmoose_api.jobs import AGENT_MODES, JobStatus, JobStore, normalize_tags
-from meshmoose_api.pipeline import apply_finish_job, refine_job, run_job
+from meshmoose_api.pipeline import apply_finish_job, reexport_job, refine_job, run_job
 from meshmoose_api.zoo_usage import fetch_zoo_usage
 
 
@@ -37,6 +37,18 @@ class JobPatch(BaseModel):
 
 class ReferencePatch(BaseModel):
     source: str
+
+
+class KclSave(BaseModel):
+    kcl: str = Field(..., min_length=1)
+    note: str | None = Field(default=None, max_length=200)
+    reexport: bool = False
+
+
+class KclRestore(BaseModel):
+    version_id: str = Field(..., min_length=1, max_length=80)
+    note: str | None = Field(default=None, max_length=200)
+    reexport: bool = False
 
 
 configure_logging()
@@ -74,9 +86,18 @@ store = JobStore()
 DEMOS_DIR = ROOT / "demos"
 PROMPT_MAX_CHARS = 8000
 REFINE_MAX_CHARS = 2000
+KCL_MAX_CHARS = 512 * 1024
 # Per-file upload cap. Zookeeper payloads are ~64MB after JSON uint8 expansion;
 # 32MB per raw file leaves headroom for multi-file jobs (see docs/api-notes.md).
 MAX_UPLOAD_BYTES = 32 * 1024 * 1024
+
+_RUNNING = {
+    JobStatus.QUEUED.value,
+    JobStatus.PREPROCESSING.value,
+    JobStatus.AGENT_RUNNING.value,
+    JobStatus.EXPORTING.value,
+    JobStatus.MEASURING.value,
+}
 
 
 async def _read_capped(upload: UploadFile, filename: str) -> bytes:
@@ -504,6 +525,95 @@ async def refine(
     return store.get(job_id, hydrate=True)
 
 
+def _queue_reexport(job_id: str, token: str, background: BackgroundTasks, *, label: str) -> None:
+    store.clear_cancel(job_id)
+    store.update_meta(job_id, error=None)
+    store.set_status(job_id, JobStatus.EXPORTING)
+    store.logger(job_id).emit(f"{label} queued", kind="export")
+
+    def _start() -> None:
+        threading.Thread(
+            target=reexport_job,
+            kwargs={"store": store, "job_id": job_id, "token": token, "label": label},
+            daemon=True,
+        ).start()
+
+    background.add_task(_start)
+
+
+@app.put("/jobs/{job_id}/kcl", tags=["jobs"])
+async def save_kcl(
+    job_id: str,
+    body: KclSave,
+    background: BackgroundTasks,
+    token: str = Depends(require_token),
+) -> dict:
+    """Save edited main.kcl; archive previous into kcl_history/; optional re-export."""
+    try:
+        meta = store.get(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+
+    if meta.get("status") in _RUNNING:
+        raise HTTPException(status_code=409, detail="Job is still running")
+
+    source = body.kcl.replace("\r\n", "\n")
+    if len(source) > KCL_MAX_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"KCL exceeds {KCL_MAX_CHARS} characters",
+        )
+
+    job = store.save_main_kcl(job_id, source, note=body.note)
+    if body.reexport:
+        _queue_reexport(job_id, token, background, label="KCL save re-export")
+        job = store.get(job_id, hydrate=True)
+    return {"job": job, "kcl": source, "reexport": bool(body.reexport)}
+
+
+@app.get("/jobs/{job_id}/kcl/versions", tags=["jobs"])
+async def list_kcl_versions(
+    job_id: str,
+    token: str = Depends(require_token),
+) -> dict:
+    _ = token
+    try:
+        versions = store.list_kcl_versions(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+    return {"versions": versions}
+
+
+@app.post("/jobs/{job_id}/kcl/restore", tags=["jobs"])
+async def restore_kcl(
+    job_id: str,
+    body: KclRestore,
+    background: BackgroundTasks,
+    token: str = Depends(require_token),
+) -> dict:
+    """Restore a kcl_history version into main.kcl; optional re-export."""
+    try:
+        meta = store.get(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+
+    if meta.get("status") in _RUNNING:
+        raise HTTPException(status_code=409, detail="Job is still running")
+
+    try:
+        job = store.restore_kcl_version(job_id, body.version_id, note=body.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Version not found") from exc
+
+    kcl = store.paths(job_id).outputs.joinpath("main.kcl").read_text(encoding="utf-8")
+    if body.reexport:
+        _queue_reexport(job_id, token, background, label="KCL restore re-export")
+        job = store.get(job_id, hydrate=True)
+    return {"job": job, "kcl": kcl, "reexport": bool(body.reexport)}
+
+
 @app.post("/jobs/{job_id}/finish", tags=["jobs"])
 async def apply_finish(
     job_id: str,
@@ -517,13 +627,7 @@ async def apply_finish(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Job not found") from exc
 
-    if meta.get("status") in {
-        "queued",
-        "preprocessing",
-        "agent_running",
-        "exporting",
-        "measuring",
-    }:
+    if meta.get("status") in _RUNNING:
         raise HTTPException(status_code=409, detail="Job is still running")
 
     kcl = store.paths(job_id).outputs / "main.kcl"

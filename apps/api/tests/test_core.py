@@ -394,6 +394,135 @@ def test_finishes_endpoint_lists_presets(tmp_path: Path, monkeypatch: pytest.Mon
     assert "metalness" in brushed
 
 
+def test_save_kcl_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
+    from fastapi.testclient import TestClient
+
+    import meshmoose_api.main as main_mod
+    from meshmoose_api.jobs import JobStatus, JobStore as LiveStore
+
+    main_mod.store = LiveStore(tmp_path / "jobs")
+    client = TestClient(main_mod.app)
+    headers = {"Authorization": "Bearer test-token"}
+    meta = main_mod.store.create(prompt="edit me", mode="fast")
+    job_id = meta["id"]
+    main_mod.store.update_meta(job_id, status="succeeded")
+    kcl_path = main_mod.store.paths(job_id).outputs / "main.kcl"
+    kcl_path.write_text("part = 1\n", encoding="utf-8")
+
+    res = client.put(
+        f"/jobs/{job_id}/kcl",
+        headers=headers,
+        json={"kcl": "part = 2\n", "note": "bump dimension"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["kcl"] == "part = 2\n"
+    assert body["reexport"] is False
+    assert body["job"]["status"] == "succeeded"
+    assert any(p.get("role") == "edit" for p in body["job"].get("prompts") or [])
+    assert kcl_path.read_text(encoding="utf-8") == "part = 2\n"
+    prev = main_mod.store.paths(job_id).outputs / "main.prev.kcl"
+    assert prev.read_text(encoding="utf-8") == "part = 1\n"
+
+    versions = client.get(f"/jobs/{job_id}/kcl/versions", headers=headers)
+    assert versions.status_code == 200
+    vlist = versions.json()["versions"]
+    assert len(vlist) == 1
+    assert vlist[0]["chars"] == len("part = 1\n")
+    version_id = vlist[0]["id"]
+
+    restored = client.post(
+        f"/jobs/{job_id}/kcl/restore",
+        headers=headers,
+        json={"version_id": version_id},
+    )
+    assert restored.status_code == 200
+    assert restored.json()["kcl"] == "part = 1\n"
+    assert kcl_path.read_text(encoding="utf-8") == "part = 1\n"
+    # Restoring archives the overwritten "part = 2" as another history entry.
+    assert len(client.get(f"/jobs/{job_id}/kcl/versions", headers=headers).json()["versions"]) == 2
+
+    def noop_reexport(**_kwargs):
+        return None
+
+    monkeypatch.setattr("meshmoose_api.main.reexport_job", noop_reexport)
+    with client:
+        queued = client.put(
+            f"/jobs/{job_id}/kcl",
+            headers=headers,
+            json={"kcl": "part = 9\n", "reexport": True},
+        )
+    assert queued.status_code == 200
+    assert queued.json()["reexport"] is True
+    assert queued.json()["job"]["status"] == "exporting"
+
+    main_mod.store.set_status(job_id, JobStatus.EXPORTING)
+    busy = client.put(
+        f"/jobs/{job_id}/kcl",
+        headers=headers,
+        json={"kcl": "part = 3\n"},
+    )
+    assert busy.status_code == 409
+
+
+def test_restore_kcl_reexport_and_guards(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
+    from fastapi.testclient import TestClient
+
+    import meshmoose_api.main as main_mod
+    from meshmoose_api.jobs import JobStatus, JobStore as LiveStore
+
+    main_mod.store = LiveStore(tmp_path / "jobs")
+    client = TestClient(main_mod.app)
+    headers = {"Authorization": "Bearer test-token"}
+    meta = main_mod.store.create(prompt="restore me", mode="fast")
+    job_id = meta["id"]
+    main_mod.store.update_meta(job_id, status="succeeded")
+    kcl_path = main_mod.store.paths(job_id).outputs / "main.kcl"
+    kcl_path.write_text("part = 1\n", encoding="utf-8")
+    client.put(
+        f"/jobs/{job_id}/kcl",
+        headers=headers,
+        json={"kcl": "part = 2\n"},
+    )
+    version_id = client.get(f"/jobs/{job_id}/kcl/versions", headers=headers).json()[
+        "versions"
+    ][0]["id"]
+
+    missing = client.post(
+        f"/jobs/{job_id}/kcl/restore",
+        headers=headers,
+        json={"version_id": "does-not-exist"},
+    )
+    assert missing.status_code in (400, 404)
+
+    def noop_reexport(**_kwargs):
+        return None
+
+    monkeypatch.setattr("meshmoose_api.main.reexport_job", noop_reexport)
+    with client:
+        queued = client.post(
+            f"/jobs/{job_id}/kcl/restore",
+            headers=headers,
+            json={"version_id": version_id, "reexport": True},
+        )
+    assert queued.status_code == 200
+    body = queued.json()
+    assert body["reexport"] is True
+    assert body["kcl"] == "part = 1\n"
+    assert body["job"]["status"] == "exporting"
+    assert kcl_path.read_text(encoding="utf-8") == "part = 1\n"
+
+    main_mod.store.set_status(job_id, JobStatus.EXPORTING)
+    busy = client.post(
+        f"/jobs/{job_id}/kcl/restore",
+        headers=headers,
+        json={"version_id": version_id},
+    )
+    assert busy.status_code == 409
+
+
 def test_finish_endpoint_requires_kcl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
     from fastapi.testclient import TestClient

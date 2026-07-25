@@ -1098,6 +1098,136 @@ button.danger:hover:not(:disabled) {
   max-width: 100%;
 }
 
+.engine-split {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.engine-viewport-col,
+.engine-editor-col {
+  min-width: 0;
+  width: 100%;
+}
+
+.engine-editor-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.engine-editor-col .section-toggle.open {
+  border-radius: 8px;
+}
+
+.engine-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.55rem 0 0.35rem;
+}
+
+.engine-editor-hint {
+  margin: 0 0 0.45rem;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.kcl-editor {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--code-bg);
+}
+
+.kcl-editor .cm-editor {
+  max-height: min(42vh, 420px);
+  overflow: auto;
+}
+
+.kcl-editor .cm-editor.cm-focused {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: -1px;
+}
+
+.engine-reexport-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.engine-reexport-toggle input {
+  margin: 0;
+}
+
+.kcl-versions {
+  margin: 0;
+}
+
+.kcl-versions-hint {
+  margin: 0.55rem 0 0.4rem;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.kcl-versions-reexport {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.55rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.kcl-versions-reexport input {
+  margin: 0;
+}
+
+.kcl-version-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.kcl-version-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  background: var(--code-bg);
+}
+
+.kcl-version-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.65rem;
+  align-items: baseline;
+  font-size: 0.75rem;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.kcl-version-id {
+  font-size: 0.72rem;
+  color: var(--ink);
+}
+
 .prompt-history {
   margin: 0;
 }
@@ -1397,6 +1527,11 @@ button.linkish:hover:not(:disabled) {
   background: color-mix(in srgb, var(--ink) 35%, transparent);
   backdrop-filter: blur(5px);
   animation: rise 0.2s ease-out both;
+}
+
+/* Confirmations opened from another modal (e.g. Delete from All jobs). */
+.modal-backdrop.elevated {
+  z-index: 100;
 }
 
 .modal {

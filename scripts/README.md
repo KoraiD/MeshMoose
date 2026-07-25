@@ -32,4 +32,4 @@ python scripts/validate_reconstruct.py --mode thoughtful
 
 | Script | Purpose |
 |--------|---------|
-| `copy-wasm.mjs` | Copies Zoo KCL wasm into `apps/web/public/` (`npm postinstall`) |
+| `copy-wasm.mjs` | Copies hoisted `@kittycad/kcl-wasm-lib` → `apps/web/public/kcl_wasm_lib_bg.wasm` and logs the version (`npm postinstall`). Must stay **0.1.168** for `@kittycad/lib@4.3.12` Live Engine ABI. |

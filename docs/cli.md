@@ -39,6 +39,9 @@ meshmoose jobs logs <id> [--lines N]
 meshmoose jobs refine <id> --message TEXT [--photo] [--mesh] [--wait]
 meshmoose jobs finish <id> --preset PRESET [--wait]
 meshmoose jobs finish --list-presets
+meshmoose jobs save-kcl <id> --file PATH [--note TEXT] [--reexport] [--wait]
+meshmoose jobs kcl-versions <id>
+meshmoose jobs kcl-restore <id> VERSION_ID [--note TEXT] [--reexport] [--wait]
 meshmoose jobs artifacts <id>
 meshmoose jobs download <id> [--out DIR] [--file REL]
 meshmoose mesh corrupt INPUT [-o OUT] [--missing] [--noise] [--artifacts] [--seed]
@@ -53,6 +56,10 @@ Every subcommand supports `--help` with examples.
 `jobs retry` clones a **failed** job’s prompt, title, tags, and input files into a new run (same as `POST /jobs/{id}/retry`).
 
 `jobs finish` patches `main.kcl` with a PBR `appearance(...)` preset and re-exports STL / STEP / 3MF (no Agent call).
+
+`jobs save-kcl` writes `outputs/main.kcl` from a local file, archives the previous file under `kcl_history/`, and records a prompt-history `edit` entry. `--reexport` queues STL/STEP/3MF export (Engine minutes); use `--wait` to poll until done.
+
+`jobs kcl-versions` / `jobs kcl-restore` list and restore archived KCL snapshots (same as the Iterate tab).
 
 `jobs rename` updates the title and/or replaces tags (same as `PATCH /jobs/{id}`). Omit `--tag` to keep existing tags.
 
@@ -100,6 +107,11 @@ meshmoose jobs create \
 
 # Apply a surface finish and re-export
 meshmoose jobs finish "$JOB_ID" --preset brushed-aluminum --wait
+
+# Manual KCL edit + history restore (optional --reexport)
+meshmoose jobs save-kcl "$JOB_ID" --file ./main.kcl --reexport --wait
+meshmoose jobs kcl-versions "$JOB_ID"
+meshmoose jobs kcl-restore "$JOB_ID" "$VERSION_ID" --reexport --wait
 
 # Retry a failed job
 meshmoose jobs retry "$FAILED_JOB_ID" --wait
