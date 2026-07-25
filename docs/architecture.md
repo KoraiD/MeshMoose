@@ -111,7 +111,11 @@ The UI can attach a **custom refine snippet** (text + optional stored photos/mes
 
 ## Live Engine preview + KCL editor
 
-The web UI mounts `@kittycad/web-view` (`ZooWebView`) against the user’s Bearer token to WebRTC-stream the Zoo Engine executing KCL. After `ready`, MeshMoose sends modeling commands for zoom / pan / rotate / scale, camera presets, edge visibility, x-ray, explode, `export3d`, PNG snapshots, click selection, and touch gestures. Mesh compare (Three.js) remains the default offline view; live engine is opt-in (uses API minutes). Open sessions are registered in-memory **after Start** so the Jobs modal can stop them. WASM is copied to `apps/web/public/` via `npm postinstall` (`scripts/copy-wasm.mjs`).
+The web UI mounts `@kittycad/web-view` (`ZooWebView`) with an `@kittycad/lib` `Client` (embedded WebRTC worker) and the user’s Bearer token to stream the Zoo Engine. After `ready`, MeshMoose sends modeling commands for zoom / pan / rotate / scale, camera presets, edge visibility, x-ray, explode, `export3d`, PNG snapshots, click selection, and touch gestures. Mesh compare (Three.js) remains the default offline view; live engine is opt-in (Engine minutes while connected). Visiting the **Live Engine** tab alone does **not** open a session or list one in the Jobs modal — only **Start** / **Start + run** does.
+
+### WASM ABI (must match)
+
+`apps/web/public/kcl_wasm_lib_bg.wasm` is fetched by the `@kittycad/lib` WebRTC worker **and** used by the CodeMirror editor (`parse_wasm` / `kcl_lint` / `recast_wasm`). It **must** be `@kittycad/kcl-wasm-lib@0.1.168` to match `@kittycad/lib@4.3.12` (the worker embeds 0.1.168 wasm-bindgen glue). Pin: `apps/web/package.json` + root `package.json` `overrides`. `npm postinstall` runs `scripts/copy-wasm.mjs` (prefers hoisted `node_modules/@kittycad/kcl-wasm-lib/`, logs `kcl-wasm-lib@<version>`). A mismatched binary fails Live Engine at worker init before any Zoo websocket connects. After `npm install`, hard-refresh the browser so Vite does not serve a cached `.wasm`. Do not bump `@kittycad/lib` without re-validating / re-pinning the wasm ABI.
 
 The Live Engine tab includes a CodeMirror **KCL editor** stacked below the WebRTC viewport, editing a local draft of `main.kcl`:
 
@@ -121,7 +125,7 @@ The Live Engine tab includes a CodeMirror **KCL editor** stacked below the WebRT
 - **Format** — Zoo `recast_wasm` pretty-print (requires a successful parse).
 - **Diagnostics** — `@kittycad/kcl-wasm-lib` `parse_wasm` + `kcl_lint` drive CodeMirror lint squiggles (no Engine minutes).
 
-The **Iterate** tab lists archived versions (`GET /jobs/{id}/kcl/versions`) with **Restore** (`POST /jobs/{id}/kcl/restore`) and an optional re-export checkbox. Workbench `main.kcl` stays read-only (committed view / diff).
+The **Iterate** tab lists archived versions (`GET /jobs/{id}/kcl/versions`) with **Restore** (`POST /jobs/{id}/kcl/restore`) and an optional re-export checkbox. Restore is allowed whenever the job is idle (even if `main.kcl` is temporarily missing from the UI). Workbench `main.kcl` stays read-only (committed view / diff).
 
 ## Manual KCL save / restore
 
@@ -129,4 +133,4 @@ The **Iterate** tab lists archived versions (`GET /jobs/{id}/kcl/versions`) with
 - `GET /jobs/{id}/kcl/versions` — newest-first archive list
 - `POST /jobs/{id}/kcl/restore` — `{ "version_id", "note"?, "reexport"? }`
 
-Rejected while the job is running. CLI: `meshmoose jobs save-kcl` / `kcl-versions` / `kcl-restore`.
+Rejected while the job is running (`409`). With `"reexport": true`, the job enters `exporting` then `measuring`. CLI: `meshmoose jobs save-kcl` / `kcl-versions` / `kcl-restore`.

@@ -26,7 +26,7 @@ After reconstruction you can **trust the result** (Compare overlay, Align, devia
 | API | Role |
 |-----|------|
 | **Agent** (ML Copilot / Zookeeper) | Photo + mesh + prompt → editable `main.kcl`; refine continues the conversation |
-| **Engine** (`zoo-kcl` + `@kittycad/web-view`) | Execute KCL → export STL/STEP; optional live WebRTC preview |
+| **Engine** (`zoo-kcl`; browser: `@kittycad/web-view` + `@kittycad/lib` WebRTC worker) | Execute KCL → export STL/STEP/3MF; optional live WebRTC preview + in-browser KCL editor |
 | **File Format** | Volume / surface area / mass / center-of-mass (reference vs generated) |
 | **Account** | Credits and recent billable calls in the **API key** menu / `meshmoose usage` |
 
@@ -42,13 +42,15 @@ python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e "apps/api[dev]"     # installs API + `meshmoose` CLI
 
-npm install
+npm install                         # postinstall copies kcl-wasm @0.1.168 → apps/web/public/
 
 cp .env.example .env.local         # optional; set ZOO_API_TOKEN=…
 npm run dev                        # API :8787 + web :5173
 ```
 
 On **Windows**, `npm run dev:api` / `npm run test:api` invoke `sh -c` — use Git Bash, WSL, or run `uvicorn` / `pytest` directly from an activated venv.
+
+After `npm install`, **hard-refresh** the browser so Live Engine does not load a stale `kcl_wasm_lib_bg.wasm` (must stay `@kittycad/kcl-wasm-lib@0.1.168` to match `@kittycad/lib@4.3.12`).
 
 - **UI:** http://127.0.0.1:5173 → **API key** → paste token → New job (or open **Docs** in the app)
 - **API docs:** http://127.0.0.1:8787/docs  
@@ -75,8 +77,8 @@ npm run dev
 - **Meshes:** STL / PLY / OBJ / 3MF / XYZ (normalized to STL for the Agent; XYZ → convex hull)
 - Compare: side-by-side or **before/after opacity overlay**; selectable reference mesh; **Align tools** (Align / heatmap / Reset) + optional **manual nudge**; download STL / STEP / **3MF**
 - Workbench: photos, filtered logs, assistant markdown, read-only KCL (current / diff vs initial), metrics (volume mm³ / cm³ / in³), **active time** (pipeline run time only)
-- Iterate: prompt history, **KCL versions** (restore archived edits), refine (text + optional photos/meshes or a saved snippet), **Apply finish** PBR presets (KCL `appearance`, no Agent call)
-- Live Engine: WebRTC preview — zoom / pan / rotate / scale, camera views, edges / x-ray / explode, snaps, selection, multi-format export (beyond job artifacts); **KCL editor** below the viewport (edit draft, parse/lint squiggles, **Format**, **Run** without reconnect, **Save** with `kcl_history/` + optional mesh re-export); open sessions listed in the Jobs modal after Start
+- Iterate: prompt history, **KCL versions** (Restore archived edits; optional mesh re-export so Compare stays in sync), refine (text + optional photos/meshes or a saved snippet), **Apply finish** PBR presets (KCL `appearance`, no Agent call)
+- Live Engine: WebRTC preview — zoom / pan / rotate / scale, camera views, edges / x-ray / explode, snaps, selection, multi-format export (beyond job artifacts); **KCL editor** below the viewport (edit draft, parse/lint squiggles, **Format**, **Run** without reconnect, **Save** with `kcl_history/` + optional mesh re-export); visiting the tab alone does **not** open a session — only **Start** (listed in the Jobs modal while connected)
 - Engine export **retries** transient Zoo `EngineHangup` errors; job errors are sanitized for the UI
 - Offline **`meshmoose mesh corrupt`** to simulate incomplete scans for demos/tests
 - In-app **Documentation** + HTTP API + CLI
@@ -104,6 +106,7 @@ meshmoose jobs create --prompt "Make a stand" --photo stand.jpg --mesh stand.stl
 meshmoose jobs finish <job_id> --preset brushed-aluminum --wait
 meshmoose jobs save-kcl <job_id> --file ./main.kcl --reexport --wait
 meshmoose jobs kcl-versions <job_id>
+meshmoose jobs kcl-restore <job_id> <version_id> --reexport --wait
 meshmoose jobs retry <failed_job_id> --wait
 meshmoose jobs download <job_id> --out ./exports
 meshmoose mesh corrupt demos/beverage-holder-stand/lidl-jar-stand.stl \

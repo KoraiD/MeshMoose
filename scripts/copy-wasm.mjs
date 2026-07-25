@@ -5,10 +5,15 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-/** Prefer the workspace web package so public wasm matches the JS glue Vite imports. */
+/**
+ * Prefer the hoisted package used by @kittycad/lib's embedded WebRTC worker.
+ * That worker is compiled against a specific kcl-wasm ABI (currently 0.1.168);
+ * public/kcl_wasm_lib_bg.wasm must match those import names or Live Engine fails
+ * before any Zoo websocket connects.
+ */
 const candidates = [
-  join(root, 'apps/web/node_modules/@kittycad/kcl-wasm-lib/kcl_wasm_lib_bg.wasm'),
   join(root, 'node_modules/@kittycad/kcl-wasm-lib/kcl_wasm_lib_bg.wasm'),
+  join(root, 'apps/web/node_modules/@kittycad/kcl-wasm-lib/kcl_wasm_lib_bg.wasm'),
   join(root, 'node_modules/web/node_modules/@kittycad/kcl-wasm-lib/kcl_wasm_lib_bg.wasm'),
 ]
 const src = candidates.find((p) => existsSync(p))

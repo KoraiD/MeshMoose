@@ -38,6 +38,7 @@ import { AuthImage } from './AuthImage'
 import { DocsPage } from './DocsPage'
 import { flattenMetrics, highlightJson, highlightKcl } from './highlight'
 import { collapseSame, diffLines } from './kclDiff'
+import { canRestoreKclVersion } from './kclRestoreGate'
 import {
   listEngineSessions,
   subscribeEngineSessions,
@@ -828,8 +829,7 @@ export default function App() {
   const refineHint = `${refineLen}/${REFINE_MAX}`
   const jobRunning = Boolean(job && isJobRunning(job.status))
   const canRefine = Boolean(job && !jobRunning && hasKcl)
-  /** Restore only needs an idle job — versions can exist even if main.kcl is missing. */
-  const canRestoreKcl = Boolean(job && !jobRunning)
+  const canRestoreKcl = canRestoreKclVersion(job)
   const history = job ? promptHistory(job) : []
 
   function onTokenChange(next: string) {

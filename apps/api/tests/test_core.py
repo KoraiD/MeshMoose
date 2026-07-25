@@ -466,6 +466,63 @@ def test_save_kcl_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert busy.status_code == 409
 
 
+def test_restore_kcl_reexport_and_guards(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
+    from fastapi.testclient import TestClient
+
+    import meshmoose_api.main as main_mod
+    from meshmoose_api.jobs import JobStatus, JobStore as LiveStore
+
+    main_mod.store = LiveStore(tmp_path / "jobs")
+    client = TestClient(main_mod.app)
+    headers = {"Authorization": "Bearer test-token"}
+    meta = main_mod.store.create(prompt="restore me", mode="fast")
+    job_id = meta["id"]
+    main_mod.store.update_meta(job_id, status="succeeded")
+    kcl_path = main_mod.store.paths(job_id).outputs / "main.kcl"
+    kcl_path.write_text("part = 1\n", encoding="utf-8")
+    client.put(
+        f"/jobs/{job_id}/kcl",
+        headers=headers,
+        json={"kcl": "part = 2\n"},
+    )
+    version_id = client.get(f"/jobs/{job_id}/kcl/versions", headers=headers).json()[
+        "versions"
+    ][0]["id"]
+
+    missing = client.post(
+        f"/jobs/{job_id}/kcl/restore",
+        headers=headers,
+        json={"version_id": "does-not-exist"},
+    )
+    assert missing.status_code in (400, 404)
+
+    def noop_reexport(**_kwargs):
+        return None
+
+    monkeypatch.setattr("meshmoose_api.main.reexport_job", noop_reexport)
+    with client:
+        queued = client.post(
+            f"/jobs/{job_id}/kcl/restore",
+            headers=headers,
+            json={"version_id": version_id, "reexport": True},
+        )
+    assert queued.status_code == 200
+    body = queued.json()
+    assert body["reexport"] is True
+    assert body["kcl"] == "part = 1\n"
+    assert body["job"]["status"] == "exporting"
+    assert kcl_path.read_text(encoding="utf-8") == "part = 1\n"
+
+    main_mod.store.set_status(job_id, JobStatus.EXPORTING)
+    busy = client.post(
+        f"/jobs/{job_id}/kcl/restore",
+        headers=headers,
+        json={"version_id": version_id},
+    )
+    assert busy.status_code == 409
+
+
 def test_finish_endpoint_requires_kcl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
     from fastapi.testclient import TestClient

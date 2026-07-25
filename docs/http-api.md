@@ -98,7 +98,7 @@ curl -sS -X PUT "http://127.0.0.1:8787/jobs/$JOB_ID/kcl" \
   -d '{"kcl":"part = startSketchOn(XY)\n  |> circle(center = [0, 0], radius = 5)\n  |> extrude(length = 2)\n","note":"thicker extrude","reexport":false}'
 ```
 
-Writes `outputs/main.kcl`, copies the previous file to `outputs/main.prev.kcl` and `outputs/kcl_history/<id>.kcl` (index capped at 20), and appends a prompt-history `edit` entry. Set `"reexport": true` to queue STL/STEP/3MF export + measure (job enters `exporting`).
+Writes `outputs/main.kcl`, copies the previous file to `outputs/main.prev.kcl` and `outputs/kcl_history/<id>.kcl` (index capped at 20), and appends a prompt-history `edit` entry. Set `"reexport": true` to queue STL/STEP/3MF export + measure (job enters `exporting`). Save and restore are rejected with **409** while the job is running.
 
 ```bash
 curl -sS "http://127.0.0.1:8787/jobs/$JOB_ID/kcl/versions" \
@@ -109,6 +109,8 @@ curl -sS -X POST "http://127.0.0.1:8787/jobs/$JOB_ID/kcl/restore" \
   -H "Content-Type: application/json" \
   -d '{"version_id":"VERSION_ID","reexport":true}'
 ```
+
+Restore writes the archived snapshot back to `main.kcl` (and archives the overwritten file). With `"reexport": true`, the job enters `exporting` then `measuring` (same path as Apply finish / save re-export).
 
 ## Align meshes
 

@@ -52,10 +52,11 @@ export function DocsPage({ onBack, embedded = false }: Props) {
             Watch the job in the sidebar or <strong>All jobs</strong>. On small screens, open
             the Jobs drawer. Status updates automatically while the app is open. Use{' '}
             <strong>Compare</strong> (overlay, Align tools, optional nudge),{' '}
-            <strong>Live engine</strong> (preview + KCL editor: parse/lint, Format, Run /
-            Save / optional re-export), <strong>Workbench</strong> (logs, metrics, read-only
-            KCL), or <strong>Iterate</strong> (prompt history, KCL versions, refine, Apply
-            finish).
+            <strong>Live engine</strong> (WebRTC preview — press <strong>Start</strong> to
+            open a session; visiting the tab alone does not. KCL editor: parse/lint, Format,
+            Run, Save / optional mesh re-export), <strong>Workbench</strong> (logs, metrics,
+            read-only KCL), or <strong>Iterate</strong> (prompt history, KCL version Restore
+            + optional re-export, refine, Apply finish).
           </li>
           <li>
             Rename the job and add up to five tags from the library (custom tags appear first
@@ -70,7 +71,11 @@ export function DocsPage({ onBack, embedded = false }: Props) {
           </li>
         </ol>
         <p className="muted">
-          Full architecture notes live in the repo under <code>docs/</code>.
+          Full architecture notes live in the repo under <code>docs/</code>. After{' '}
+          <code>npm install</code>, hard-refresh so Live Engine loads{' '}
+          <code>kcl_wasm_lib_bg.wasm</code> <strong>0.1.168</strong> (must match{' '}
+          <code>@kittycad/lib</code>). Paste a Zoo token under <strong>API key</strong> before
+          Start.
         </p>
       </section>
 
@@ -199,6 +204,7 @@ meshmoose jobs create --prompt "Make a stand" --photo a.jpg --mesh a.stl \
 meshmoose jobs finish <job_id> --preset brushed-aluminum --wait
 meshmoose jobs save-kcl <job_id> --file ./main.kcl --reexport --wait
 meshmoose jobs kcl-versions <job_id>
+meshmoose jobs kcl-restore <job_id> <version_id> --reexport --wait
 meshmoose jobs retry <failed_job_id>
 meshmoose jobs download <job_id> --out ./exports
 meshmoose mesh corrupt part.stl -o partial.stl --missing 0.35`}</pre>

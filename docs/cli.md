@@ -108,6 +108,11 @@ meshmoose jobs create \
 # Apply a surface finish and re-export
 meshmoose jobs finish "$JOB_ID" --preset brushed-aluminum --wait
 
+# Manual KCL edit + history restore (optional --reexport)
+meshmoose jobs save-kcl "$JOB_ID" --file ./main.kcl --reexport --wait
+meshmoose jobs kcl-versions "$JOB_ID"
+meshmoose jobs kcl-restore "$JOB_ID" "$VERSION_ID" --reexport --wait
+
 # Retry a failed job
 meshmoose jobs retry "$FAILED_JOB_ID" --wait
 
