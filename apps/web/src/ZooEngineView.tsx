@@ -186,10 +186,18 @@ export function ZooEngineView({
   const connectedAt = useRef<number | null>(null)
 
   // Only list in All jobs after Start — visiting the Live Engine tab is not a session.
+  // Lifecycle is keyed on connected + jobId so a title rename does not unregister
+  // (which would reset startedAt) before re-registering.
   useEffect(() => {
     if (!connected || !jobId) return
     registerEngineSession(jobId, jobTitle)
     return () => unregisterEngineSession(jobId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- jobTitle updates below
+  }, [connected, jobId])
+
+  useEffect(() => {
+    if (!connected || !jobId) return
+    registerEngineSession(jobId, jobTitle)
   }, [connected, jobId, jobTitle])
 
   // Keep the draft aligned with disk when the user hasn't edited locally.
@@ -596,6 +604,17 @@ export function ZooEngineView({
     }
   }
 
+  function startLiveSession(): boolean {
+    if (!getApiToken()) {
+      setError('Save a Zoo API token to start the live engine view.')
+      setConnected(false)
+      return false
+    }
+    setError(null)
+    setConnected(true)
+    return true
+  }
+
   function onRunDraft() {
     const source = draftRef.current
     if (!source.trim()) {
@@ -603,7 +622,7 @@ export function ZooEngineView({
       return
     }
     if (!connected) {
-      setConnected(true)
+      startLiveSession()
       return
     }
     if (!ready) {
@@ -693,6 +712,9 @@ export function ZooEngineView({
     const token = getApiToken()
     if (!token) {
       setError('Save a Zoo API token to start the live engine view.')
+      setConnected(false)
+      setReady(false)
+      setStatus('Disconnected — start a session when ready')
       return
     }
 
@@ -1102,7 +1124,9 @@ export function ZooEngineView({
             <IconBtn
               label="Start"
               primary
-              onClick={() => setConnected(true)}
+              onClick={() => {
+                startLiveSession()
+              }}
             >
               <IconPlay />
             </IconBtn>

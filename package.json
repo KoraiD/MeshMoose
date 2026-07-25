@@ -30,6 +30,7 @@
     "concurrently": "^9.1.2"
   },
   "overrides": {
-    "@kittycad/kcl-wasm-lib": "0.1.168"
+    "@kittycad/kcl-wasm-lib": "0.1.168",
+    "@kittycad/lib": "4.3.12"
   }
 }

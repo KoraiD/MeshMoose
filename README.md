@@ -50,7 +50,7 @@ npm run dev                        # API :8787 + web :5173
 
 On **Windows**, `npm run dev:api` / `npm run test:api` invoke `sh -c` — use Git Bash, WSL, or run `uvicorn` / `pytest` directly from an activated venv.
 
-After `npm install`, **hard-refresh** the browser so Live Engine does not load a stale `kcl_wasm_lib_bg.wasm` (must stay `@kittycad/kcl-wasm-lib@0.1.168` to match `@kittycad/lib@4.3.12`).
+After `npm install`, **hard-refresh** the browser so Live Engine does not load a stale `kcl_wasm_lib_bg.wasm`. Keep `@kittycad/lib@4.3.12` and `@kittycad/kcl-wasm-lib@0.1.168` pinned together (root `overrides`).
 
 - **UI:** http://127.0.0.1:5173 → **API key** → paste token → New job (or open **Docs** in the app)
 - **API docs:** http://127.0.0.1:8787/docs  

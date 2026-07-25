@@ -2,8 +2,9 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-/** Must match @kittycad/lib@4.3.12 embedded WebRTC worker ABI. */
+/** Live Engine worker ABI: keep these two pins in lockstep. */
 const PINNED_KCL_WASM = '0.1.168'
+const PINNED_KITTYCAD_LIB = '4.3.12'
 const WORKER_ON_OPERATION = '__wbg_onOperation_9fa751e9adb89f31'
 
 function repoRoot(): string {
@@ -22,7 +23,7 @@ describe('kcl-wasm Live Engine ABI pin', () => {
   const root = repoRoot()
   const webDir = join(root, 'apps/web')
 
-  it(`pins @kittycad/kcl-wasm-lib to ${PINNED_KCL_WASM}`, () => {
+  it(`pins kcl-wasm-lib@${PINNED_KCL_WASM} with @kittycad/lib@${PINNED_KITTYCAD_LIB}`, () => {
     const webPkg = JSON.parse(readFileSync(join(webDir, 'package.json'), 'utf8')) as {
       dependencies: Record<string, string>
     }
@@ -30,12 +31,18 @@ describe('kcl-wasm Live Engine ABI pin', () => {
       overrides?: Record<string, string>
     }
     expect(webPkg.dependencies['@kittycad/kcl-wasm-lib']).toBe(PINNED_KCL_WASM)
+    expect(webPkg.dependencies['@kittycad/lib']).toBe(PINNED_KITTYCAD_LIB)
     expect(rootPkg.overrides?.['@kittycad/kcl-wasm-lib']).toBe(PINNED_KCL_WASM)
+    expect(rootPkg.overrides?.['@kittycad/lib']).toBe(PINNED_KITTYCAD_LIB)
 
-    const installed = JSON.parse(
+    const wasmInstalled = JSON.parse(
       readFileSync(join(root, 'node_modules/@kittycad/kcl-wasm-lib/package.json'), 'utf8'),
     ) as { version: string }
-    expect(installed.version).toBe(PINNED_KCL_WASM)
+    const libInstalled = JSON.parse(
+      readFileSync(join(root, 'node_modules/@kittycad/lib/package.json'), 'utf8'),
+    ) as { version: string }
+    expect(wasmInstalled.version).toBe(PINNED_KCL_WASM)
+    expect(libInstalled.version).toBe(PINNED_KITTYCAD_LIB)
   })
 
   it('serves public wasm that matches the installed package', () => {

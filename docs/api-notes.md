@@ -53,7 +53,7 @@ MeshMoose soft-caps create prompts at **8000** characters and nudges around **20
 
 9. **KCL WASM ABI mismatch**  
    `@kittycad/lib` embeds wasm-bindgen glue for a specific `kcl-wasm-lib` build. If `public/kcl_wasm_lib_bg.wasm` is not **0.1.168**, Live Engine fails at worker init (`__wbg_onOperation_… is not a Function`) before connecting to Zoo.  
-   **Workaround:** keep the root `overrides` + `apps/web` pin on `0.1.168`, re-run `npm install` (copy-wasm), hard-refresh the browser. Do not force `0.1.170` until Zoo publishes a matching `@kittycad/lib`.
+   **Workaround:** keep root `overrides` + `apps/web` pins on `@kittycad/lib@4.3.12` and `kcl-wasm-lib@0.1.168`, re-run `npm install` (copy-wasm), hard-refresh the browser. Do not force a newer wasm until Zoo publishes a matching `@kittycad/lib`.
 
 ## Wishlist
 
