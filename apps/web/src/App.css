@@ -1022,9 +1022,11 @@ button.danger:hover:not(:disabled) {
   color: var(--muted);
 }
 
-.section-toggle h3 {
+.section-toggle-title {
   margin: 0;
   font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.25;
 }
 
 .section-toggle-meta {
