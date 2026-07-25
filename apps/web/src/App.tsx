@@ -275,6 +275,7 @@ export default function App() {
   const [createError, setCreateError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [jobsDrawerOpen, setJobsDrawerOpen] = useState(false)
+  const [compareAlignOpen, setCompareAlignOpen] = useState(false)
   const [compareNudgeOpen, setCompareNudgeOpen] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [prompt, setPrompt] = useState('')
@@ -1705,33 +1706,47 @@ export default function App() {
                       <div className="align-controls">
                         <button
                           type="button"
-                          className="viewport-btn"
-                          disabled={alignBusy}
-                          onClick={() => {
-                            if (!job) return
-                            setAlignBusy(true)
-                            setAlignError(null)
-                            alignJob(job.id)
-                              .then((res) => {
-                                setAlignResult(res)
-                                setHeatmapOn(true)
-                              })
-                              .catch((e: Error) => setAlignError(e.message))
-                              .finally(() => setAlignBusy(false))
-                          }}
-                          title="ICP-align generated mesh onto reference and compute deviation"
+                          className={`viewport-btn${compareAlignOpen ? ' active' : ''}`}
+                          aria-expanded={compareAlignOpen}
+                          onClick={() => setCompareAlignOpen((v) => !v)}
+                          title={
+                            compareAlignOpen
+                              ? 'Hide align tools'
+                              : 'Show align tools'
+                          }
                         >
-                          {alignBusy
-                            ? 'Aligning…'
-                            : alignResult
-                              ? 'Re-align'
-                              : 'Align + deviation'}
+                          Align tools
                         </button>
-                        {alignResult ? (
+                        {compareAlignOpen ? (
                           <>
                             <button
                               type="button"
+                              className="viewport-btn"
+                              disabled={alignBusy}
+                              onClick={() => {
+                                if (!job) return
+                                setAlignBusy(true)
+                                setAlignError(null)
+                                alignJob(job.id)
+                                  .then((res) => {
+                                    setAlignResult(res)
+                                    setHeatmapOn(true)
+                                  })
+                                  .catch((e: Error) => setAlignError(e.message))
+                                  .finally(() => setAlignBusy(false))
+                              }}
+                              title="ICP-align generated mesh onto reference and compute deviation"
+                            >
+                              {alignBusy
+                                ? 'Aligning…'
+                                : alignResult
+                                  ? 'Re-align'
+                                  : 'Align'}
+                            </button>
+                            <button
+                              type="button"
                               className={`viewport-btn${heatmapOn ? ' active' : ''}`}
+                              disabled={!alignResult}
                               onClick={() => setHeatmapOn((v) => !v)}
                               title="Color generated mesh by distance to reference"
                             >
@@ -1740,28 +1755,33 @@ export default function App() {
                             <button
                               type="button"
                               className="viewport-btn"
+                              disabled={!alignResult && !alignError}
                               onClick={() => {
+                                // Clear alignment state; keep the tools panel open.
                                 setAlignResult(null)
                                 setHeatmapOn(false)
+                                setAlignError(null)
                                 setNudge({
                                   translate: [0, 0, 0],
                                   rotateDeg: [0, 0, 0],
                                   scale: 1,
                                 })
                               }}
-                              title="Clear alignment and nudge"
+                              title="Clear alignment and nudge (keeps tools open)"
                             >
                               Reset
                             </button>
-                            <span className="align-stats muted">
-                              mean {alignResult.stats.mean?.toFixed(2) ?? '—'}mm · p95{' '}
-                              {alignResult.stats.p95?.toFixed(2) ?? '—'}mm · max{' '}
-                              {alignResult.stats.max?.toFixed(2) ?? '—'}mm
-                            </span>
+                            {alignResult ? (
+                              <span className="align-stats muted">
+                                mean {alignResult.stats.mean?.toFixed(2) ?? '—'}mm · p95{' '}
+                                {alignResult.stats.p95?.toFixed(2) ?? '—'}mm · max{' '}
+                                {alignResult.stats.max?.toFixed(2) ?? '—'}mm
+                              </span>
+                            ) : null}
+                            {alignError ? (
+                              <span className="align-error">{alignError}</span>
+                            ) : null}
                           </>
-                        ) : null}
-                        {alignError ? (
-                          <span className="align-error">{alignError}</span>
                         ) : null}
                       </div>
                     ) : null}
