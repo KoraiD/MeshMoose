@@ -1347,7 +1347,10 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => setJobsModalOpen(true)}
+                onClick={() => {
+                  setJobsDrawerOpen(false)
+                  setJobsModalOpen(true)
+                }}
                 title="Open the full jobs list, in-progress runs, and engine sessions"
               >
                 All jobs

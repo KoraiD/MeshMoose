@@ -1342,7 +1342,8 @@ button.linkish:hover:not(:disabled) {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  /* Above the mobile jobs drawer (z-index 60) so All jobs / Settings / etc. are not buried. */
+  z-index: 80;
   display: grid;
   place-items: center;
   padding: 1rem;
