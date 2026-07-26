@@ -21,6 +21,10 @@ Remodeling the whole part by hand in traditional CAD is slow when the goal is â€
 
 After reconstruction you can **trust the result** (Compare overlay, Align, deviation heatmap), preview in the **live Engine**, **Apply finish** without another Agent call, export **STL / STEP / 3MF**, and **iterate** with refine messages. Incomplete or noisy scans are first-class (see the `partial-stand` demo and `meshmoose mesh corrupt`). The same pipeline runs from the **browser UI**, local **HTTP API**, or **`meshmoose` CLI** â€” local-first jobs on disk, Zoo token only in the client.
 
+## Demo video
+
+https://github.com/user-attachments/assets/82c66d65-3123-42fe-878a-ff19575f54f1
+
 ## Zoo APIs used
 
 | API | Role |
