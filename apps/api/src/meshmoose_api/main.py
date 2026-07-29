@@ -26,7 +26,13 @@ from meshmoose_api.align import align_meshes
 from meshmoose_api.config import ROOT, configure_logging, data_dir
 from meshmoose_api.finishes import get_finish_preset, list_finish_presets
 from meshmoose_api.jobs import AGENT_MODES, JobStatus, JobStore, normalize_tags
-from meshmoose_api.pipeline import apply_finish_job, reexport_job, refine_job, run_job
+from meshmoose_api.pipeline import (
+    apply_finish_job,
+    reexport_job,
+    refine_job,
+    resume_job,
+    run_job,
+)
 from meshmoose_api.zoo_usage import fetch_zoo_usage
 
 
@@ -223,6 +229,36 @@ def retry_job(
     return meta
 
 
+@app.post("/jobs/{job_id}/resume", tags=["jobs"])
+def resume_failed_job(
+    job_id: str,
+    background: BackgroundTasks,
+    token: str = Depends(require_token),
+) -> dict:
+    """Continue a failed Agent run from the last draft KCL checkpoint."""
+    try:
+        meta = store.get(job_id, hydrate=True)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+    if meta.get("status") != "failed":
+        raise HTTPException(status_code=400, detail="Only failed jobs can be resumed")
+    if not store.has_agent_checkpoint(job_id):
+        raise HTTPException(
+            status_code=400,
+            detail="No Agent checkpoint to resume — use Retry for a full restart",
+        )
+    store.append_prompt(
+        job_id,
+        text="Resume from Agent checkpoint (draft main.kcl)",
+        role="resume",
+        mode=meta.get("mode"),
+    )
+    store.update_meta(job_id, error=None)
+    store.set_status(job_id, JobStatus.AGENT_RUNNING)
+    background.add_task(_start_resume_thread, job_id, token)
+    return store.get(job_id, hydrate=True)
+
+
 @app.post("/jobs/{job_id}/cancel", tags=["jobs"])
 def cancel_job(job_id: str, _: str = Depends(require_token)) -> dict:
     try:
@@ -348,6 +384,10 @@ def job_file(job_id: str, file_path: str, _: str = Depends(require_token)) -> Fi
 
 def _start_job_thread(job_id: str, token: str) -> None:
     threading.Thread(target=run_job, args=(store, job_id, token), daemon=True).start()
+
+
+def _start_resume_thread(job_id: str, token: str) -> None:
+    threading.Thread(target=resume_job, args=(store, job_id, token), daemon=True).start()
 
 
 @app.post("/jobs", tags=["jobs"])

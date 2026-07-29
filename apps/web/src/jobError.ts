@@ -69,3 +69,21 @@ export function formatJobError(raw: string | null | undefined): string {
   if (summary.length > 480) return `${summary.slice(0, 479).trimEnd()}…`
   return summary || 'Unknown error'
 }
+
+/** Clean Workbench log lines (ANSI / Python tuple dumps) without losing the prefix. */
+export function sanitizeLogMessage(raw: string | null | undefined): string {
+  if (!raw) return ''
+  const dumpAt = raw.search(/\(\s*['"]\\x1b|\(\s*['"]\u001b|\\x1b\[|\u001b\[/i)
+  if (dumpAt >= 0) {
+    const prefix = raw.slice(0, dumpAt).trimEnd()
+    const dump = raw.slice(dumpAt).trim()
+    const summary = formatJobError(dump.startsWith('(') ? dump : raw.slice(dumpAt))
+    if (prefix) {
+      // Keep "STL export hit a retryable Engine error (2 attempt(s) left):"
+      const trimmed = prefix.replace(/:\s*$/, '')
+      return `${trimmed}: ${summary}`
+    }
+    return summary
+  }
+  return stripAnsi(decodePyStringEscapes(raw))
+}

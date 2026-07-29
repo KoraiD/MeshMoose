@@ -384,7 +384,47 @@ class JobStore:
         job_id = meta.get("id")
         if not job_id:
             return meta
-        return self.ensure_prompt_history(str(job_id))
+        out = dict(self.ensure_prompt_history(str(job_id)))
+        out["has_agent_checkpoint"] = self.has_agent_checkpoint(str(job_id))
+        return out
+
+    AGENT_DRAFT_KCL = "main.draft.kcl"
+
+    def agent_draft_path(self, job_id: str) -> Path:
+        return self.paths(job_id).outputs / self.AGENT_DRAFT_KCL
+
+    def has_agent_checkpoint(self, job_id: str) -> bool:
+        path = self.agent_draft_path(job_id)
+        return path.is_file() and path.stat().st_size > 0
+
+    def read_agent_draft_kcl(self, job_id: str) -> str | None:
+        path = self.agent_draft_path(job_id)
+        if not path.is_file():
+            return None
+        text = path.read_text(encoding="utf-8")
+        return text if text.strip() else None
+
+    def save_agent_checkpoint(
+        self,
+        job_id: str,
+        *,
+        conversation_id: str | None = None,
+        main_kcl: str | None = None,
+    ) -> None:
+        """Persist mid-Agent progress for Resume after websocket failures."""
+        updates: dict[str, Any] = {}
+        if conversation_id:
+            updates["conversation_id"] = conversation_id
+        if updates:
+            self.update_meta(job_id, **updates)
+        if main_kcl and main_kcl.strip():
+            path = self.agent_draft_path(job_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(main_kcl, encoding="utf-8")
+            self.logger(job_id).emit(
+                f"Checkpointed draft KCL ({len(main_kcl)} chars)",
+                kind="agent",
+            )
 
     RUNNING_STATUSES = frozenset(
         {
@@ -489,7 +529,7 @@ class JobStore:
             raise KeyError(job_id)
         meta = json.loads(path.read_text(encoding="utf-8"))
         if hydrate:
-            meta = self.ensure_prompt_history(job_id)
+            meta = self.hydrate(meta)
         return self._sanitize_meta_error(meta)
 
     def list_jobs(self, *, hydrate: bool = True) -> list[dict[str, Any]]:
@@ -499,7 +539,7 @@ class JobStore:
                 try:
                     meta = json.loads((child / "meta.json").read_text(encoding="utf-8"))
                     if hydrate and meta.get("id"):
-                        meta = self.ensure_prompt_history(meta["id"])
+                        meta = self.hydrate(meta)
                     jobs.append(self._sanitize_meta_error(meta))
                 except json.JSONDecodeError:
                     continue

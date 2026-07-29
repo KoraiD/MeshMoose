@@ -1424,11 +1424,19 @@ button.linkish:hover:not(:disabled) {
 
 .log-line {
   display: grid;
-  grid-template-columns: 52px 48px 1fr;
+  grid-template-columns: 52px 48px minmax(0, 1fr);
   gap: 0.4rem;
   padding: 0.2rem 0.25rem;
   border-bottom: 1px solid var(--line);
   border-radius: 4px;
+  min-width: 0;
+}
+
+.log-line .msg {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .log-line .lvl {
@@ -2222,7 +2230,7 @@ button.linkish:hover:not(:disabled) {
 
 .workbench-quad {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-template-rows: auto auto;
   gap: 0.85rem;
   align-items: start;
@@ -2232,14 +2240,20 @@ button.linkish:hover:not(:disabled) {
   margin-bottom: 0;
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
   width: 100%;
+  max-width: 100%;
 }
 
 .workbench-quad .log-panel {
   height: 280px;
   max-height: 280px;
+  min-width: 0;
+  max-width: 100%;
   overflow: auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .workbench-quad .md-panel,

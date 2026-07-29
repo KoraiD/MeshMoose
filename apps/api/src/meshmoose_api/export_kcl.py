@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TypeVar
 
+from meshmoose_api.errors import format_job_error
 from meshmoose_api.logging_util import JobLogger
 from meshmoose_api.threemf import stl_to_3mf
 
@@ -39,7 +40,7 @@ async def _execute_with_retries(
             if attempts_left > 0 and callable(is_retryable) and is_retryable():
                 log.emit(
                     f"{label} hit a retryable Engine error "
-                    f"({attempts_left} attempt(s) left): {error}",
+                    f"({attempts_left} attempt(s) left): {format_job_error(error)}",
                     level="warn",
                     kind="export",
                 )

@@ -18,6 +18,7 @@ type Props = {
   onSelectJob: (id: string) => void
   onDeleteJob: (id: string) => void
   onRetryJob: (id: string) => void
+  onResumeJob?: (id: string) => void
   onCancelJob: (id: string) => void
   onStopEngine: (jobId: string) => void
 }
@@ -38,6 +39,7 @@ export function JobsModal({
   onSelectJob,
   onDeleteJob,
   onRetryJob,
+  onResumeJob,
   onCancelJob,
   onStopEngine,
 }: Props) {
@@ -243,13 +245,25 @@ export function JobsModal({
                   </button>
                   <div className="jobs-modal-actions">
                     {j.status === 'failed' ? (
-                      <button
-                        type="button"
-                        className="job-retry"
-                        onClick={() => onRetryJob(j.id)}
-                      >
-                        Retry
-                      </button>
+                      <>
+                        {j.has_agent_checkpoint && onResumeJob ? (
+                          <button
+                            type="button"
+                            className="job-retry"
+                            title="Continue from Agent draft KCL"
+                            onClick={() => onResumeJob(j.id)}
+                          >
+                            Resume
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="job-retry"
+                          onClick={() => onRetryJob(j.id)}
+                        >
+                          Retry
+                        </button>
+                      </>
                     ) : null}
                     <button
                       type="button"

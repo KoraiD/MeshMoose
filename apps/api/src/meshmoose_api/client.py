@@ -123,6 +123,9 @@ class MeshMooseClient:
     def retry_job(self, job_id: str) -> dict[str, Any]:
         return self._request("POST", f"/jobs/{quote(job_id)}/retry")
 
+    def resume_job(self, job_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/jobs/{quote(job_id)}/resume")
+
     def patch_job(
         self,
         job_id: str,

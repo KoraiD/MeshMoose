@@ -26,6 +26,7 @@ flowchart TB
 - **Refine** re-enters at `agent_running` (message + current `main.kcl`, optionally new photos/meshes), then export + measure again.
 - **Apply finish** rewrites KCL `appearance(...)` for a preset and re-enters at `exporting` (no Agent call).
 - **Retry** clones a failed job’s prompt, title, tags, and input files into a new `queued` job (`retry_of` / `retried_as`).
+- **Resume** continues the *same* failed job when an Agent checkpoint exists (`outputs/main.draft.kcl`, plus `conversation_id` when known). It promotes the draft to `main.kcl`, runs refine with a “continue after disconnect” prompt, then export + measure. Prefer Resume after mid-Agent Zoo websocket failures; use Retry when no draft was saved.
 
 Each step appends structured events to `events.jsonl` and a human `outputs/job.log`, streamed to the UI Logs panel. SSE stays open for the connection lifetime so refine / finish after success still update the Workbench. Clients may reconnect with `GET /jobs/{id}/events?after=N` to resume without replaying the full backlog. The web UI also **polls the jobs list** every few seconds while any job is running, so status, artifacts, and browser notifications still update if SSE drops (for example after an API reload).
 
@@ -45,7 +46,7 @@ Authenticated job files (`/jobs/{id}/files/...`) require the same Bearer header.
 
 | Surface | Purpose |
 |---------|---------|
-| Jobs list / Jobs modal | Select, filter (name/ID/tag/state/time), retry failed, delete; live Engine sessions; **New job**; **Docs**; **Settings** |
+| Jobs list / Jobs modal | Select, filter (name/ID/tag/state/time), resume checkpoint / retry failed, delete; live Engine sessions; **New job**; **Docs**; **Settings** |
 | API key menu | Token, Zoo usage (credits + recent calls), optional 10‑minute usage auto-refresh |
 | Settings | Theme, job finish notifications, tag library, custom refine snippets, prompt templates, app log |
 | New job modal | Title, prompt templates, mode, photos, meshes, local STL preview, demos |
@@ -62,7 +63,8 @@ Per-job directory under `data/jobs/<id>/` (gitignored):
 meta.json          title, tags[], prompts[], status, active_ms, run_started_at, …
 events.jsonl
 inputs/            photos + meshes
-outputs/           reference.stl, main.kcl, main.initial.kcl, main.prev.kcl,
+outputs/           reference.stl, main.kcl, main.draft.kcl (Agent checkpoint),
+                   main.initial.kcl, main.prev.kcl,
                    kcl_history/<id>.kcl + index.json (up to 20),
                    generated.stl/.step/.3mf, metrics.json, job.log, agent_*.jpeg
 ```

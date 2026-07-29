@@ -290,6 +290,75 @@ def test_retry_failed_job(tmp_path: Path):
     assert "Retried as" in (failed.get("notes") or "")
 
 
+def test_agent_checkpoint_roundtrip(tmp_path: Path):
+    store = JobStore(tmp_path / "jobs")
+    meta = store.create(prompt="Make a hoop", mode="fast")
+    job_id = meta["id"]
+    assert store.has_agent_checkpoint(job_id) is False
+    assert store.get(job_id, hydrate=True)["has_agent_checkpoint"] is False
+
+    store.save_agent_checkpoint(
+        job_id,
+        conversation_id="conv-abc",
+        main_kcl="// draft\nstartSketchOn(XY)\n",
+    )
+    assert store.has_agent_checkpoint(job_id) is True
+    assert store.read_agent_draft_kcl(job_id) == "// draft\nstartSketchOn(XY)\n"
+    hydrated = store.get(job_id, hydrate=True)
+    assert hydrated["has_agent_checkpoint"] is True
+    assert hydrated["conversation_id"] == "conv-abc"
+    assert store.agent_draft_path(job_id).name == "main.draft.kcl"
+
+    listed = store.list_jobs(hydrate=True)
+    match = next(j for j in listed if j["id"] == job_id)
+    assert match["has_agent_checkpoint"] is True
+
+
+def test_resume_endpoint_requires_failed_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("MESHMOOSE_DATA_DIR", str(tmp_path))
+    import meshmoose_api.main as main_mod
+    from fastapi.testclient import TestClient
+
+    main_mod.store = JobStore(tmp_path / "jobs")
+    client = TestClient(main_mod.app)
+    headers = {"Authorization": "Bearer test-token"}
+
+    meta = main_mod.store.create(prompt="x", mode="fast")
+    job_id = meta["id"]
+
+    res = client.post(f"/jobs/{job_id}/resume", headers=headers)
+    assert res.status_code == 400
+    assert "failed" in res.json()["detail"].lower()
+
+    main_mod.store.update_meta(job_id, status="failed", error="websocket closed")
+    res = client.post(f"/jobs/{job_id}/resume", headers=headers)
+    assert res.status_code == 400
+    assert "checkpoint" in res.json()["detail"].lower()
+
+    main_mod.store.save_agent_checkpoint(
+        job_id,
+        conversation_id="c1",
+        main_kcl="// ok\n",
+    )
+    started: list[tuple[str, str]] = []
+
+    def fake_start(jid: str, token: str) -> None:
+        started.append((jid, token))
+
+    monkeypatch.setattr(main_mod, "_start_resume_thread", fake_start)
+    res = client.post(f"/jobs/{job_id}/resume", headers=headers)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["id"] == job_id
+    assert body["status"] == "agent_running"
+    assert body["has_agent_checkpoint"] is True
+    prompts = body.get("prompts") or []
+    assert any(p.get("role") == "resume" for p in prompts)
+    assert started == [(job_id, "test-token")]
+
+
 def test_list_artifacts(tmp_path: Path):
     store = JobStore(tmp_path / "jobs")
     meta = store.create(prompt="x", mode="fast")
@@ -1115,6 +1184,41 @@ def test_format_job_error_from_exception_args():
     out = format_job_error(exc)
     assert "modeling connection interrupted" in out.lower()
     assert "\x1b" not in out
+
+
+def test_build_resume_message_includes_last_refine():
+    from meshmoose_api.agent import RESUME_MESSAGE, build_resume_message
+
+    assert build_resume_message(None) == RESUME_MESSAGE
+    msg = build_resume_message(
+        [
+            {"role": "initial", "text": "Make a hoop"},
+            {"role": "refine", "text": "Fix the curves"},
+            {"role": "resume", "text": "Resume from Agent checkpoint (draft main.kcl)"},
+        ]
+    )
+    assert msg.startswith(RESUME_MESSAGE)
+    assert "Fix the curves" in msg
+    assert "Resume from Agent checkpoint" not in msg.split("latest instruction", 1)[-1]
+
+
+def test_copilot_ws_factory_disables_ping_timeout(monkeypatch: pytest.MonkeyPatch):
+    from meshmoose_api import agent as agent_mod
+
+    captured: dict[str, object] = {}
+
+    def fake_connect(uri: str, **kwargs: object):
+        captured["uri"] = uri
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(agent_mod, "ws_connect", fake_connect)
+    agent_mod.copilot_ws_factory("wss://example/ws", additional_headers={"a": "b"})
+    assert captured["uri"] == "wss://example/ws"
+    assert captured["ping_timeout"] is None
+    assert captured["ping_interval"] == 20.0
+    assert captured["max_size"] is None
+    assert captured["additional_headers"] == {"a": "b"}
 
 
 def test_export_kcl_retries_retryable_engine_errors(

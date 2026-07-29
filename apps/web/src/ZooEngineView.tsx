@@ -1086,7 +1086,8 @@ export function ZooEngineView({
     if (!hasKcl && jobStatus === 'failed') {
       idleMessage = (
         <>
-          This job failed before producing <code>main.kcl</code>. Retry the job or refine
+          This job failed before producing <code>main.kcl</code>. If a draft checkpoint
+          exists, use <strong>Resume from checkpoint</strong>; otherwise Retry, or refine
           from Workbench/Iterate once KCL exists.
         </>
       )

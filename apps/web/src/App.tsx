@@ -15,6 +15,7 @@ import {
   listJobs,
   patchJob,
   refineJob,
+  resumeJob,
   retryJob,
   subscribeJobEvents,
   alignJob,
@@ -81,7 +82,7 @@ import {
   MAX_TAG_LEN,
 } from './tagLibrary'
 import { applyTheme, getThemePreference } from './theme'
-import { formatJobError } from './jobError'
+import { formatJobError, sanitizeLogMessage } from './jobError'
 import { UsageMeter } from './UsageMeter'
 import {
   clearZooUsageCache,
@@ -149,6 +150,8 @@ function formatPromptRole(role: string): string {
       return 'Finish'
     case 'edit':
       return 'Manual edit'
+    case 'resume':
+      return 'Resume'
     default:
       return role
   }
@@ -1165,6 +1168,20 @@ export default function App() {
     }
   }
 
+  async function onResumeJob(jobId: string) {
+    setError(null)
+    try {
+      const updated = await resumeJob(jobId)
+      setJob(updated)
+      setSelectedId(updated.id)
+      setDetailTab('workbench')
+      appLog(`Resume from Agent checkpoint: ${jobId.slice(-8)}`)
+      await refreshJobs()
+    } catch (err) {
+      reportError((err as Error).message)
+    }
+  }
+
   async function onCancelJob() {
     if (!job) return
     setError(null)
@@ -1564,13 +1581,26 @@ export default function App() {
                     </button>
                   ) : null}
                   {job.status === 'failed' ? (
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => void onRetryJob(job.id)}
-                    >
-                      Retry job
-                    </button>
+                    <>
+                      {job.has_agent_checkpoint ? (
+                        <button
+                          type="button"
+                          className="primary"
+                          title="Continue from the last draft main.kcl checkpoint"
+                          onClick={() => void onResumeJob(job.id)}
+                        >
+                          Resume from checkpoint
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className={job.has_agent_checkpoint ? undefined : 'primary'}
+                        title="Start a new job with the same inputs (full Agent restart)"
+                        onClick={() => void onRetryJob(job.id)}
+                      >
+                        Retry job
+                      </button>
+                    </>
                   ) : null}
                   <button
                     type="button"
@@ -2200,7 +2230,7 @@ export default function App() {
                             const text = filteredLogs
                               .map(
                                 (ev) =>
-                                  `${ev.ts ?? ''} ${(ev.level || 'info').toUpperCase()} ${ev.message ?? ''}`,
+                                  `${ev.ts ?? ''} ${(ev.level || 'info').toUpperCase()} ${sanitizeLogMessage(ev.message ?? '')}`,
                               )
                               .join('\n')
                             const blob = new Blob([text], { type: 'text/plain' })
@@ -2251,7 +2281,7 @@ export default function App() {
                               <span className="lvl">
                                 {(ev.level || 'info').toUpperCase()}
                               </span>
-                              <span className="msg">{ev.message}</span>
+                              <span className="msg">{sanitizeLogMessage(ev.message)}</span>
                             </div>
                           ))
                         )}
@@ -3002,6 +3032,10 @@ export default function App() {
         onRetryJob={(id) => {
           setJobsModalOpen(false)
           void onRetryJob(id)
+        }}
+        onResumeJob={(id) => {
+          setJobsModalOpen(false)
+          void onResumeJob(id)
         }}
         onCancelJob={(id) => void onCancelJobById(id)}
         onStopEngine={onStopEngine}

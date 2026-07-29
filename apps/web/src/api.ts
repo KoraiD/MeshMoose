@@ -49,6 +49,8 @@ export type Job = {
   notes?: string | null
   retry_of?: string | null
   retried_as?: string | null
+  /** True when outputs/main.draft.kcl exists (Agent checkpoint for Resume). */
+  has_agent_checkpoint?: boolean
 }
 
 export type Demo = {
@@ -210,6 +212,15 @@ export async function cancelJob(id: string): Promise<Job> {
 
 export async function retryJob(id: string): Promise<Job> {
   const res = await fetch(`${BASE}/jobs/${id}/retry`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(await errDetail(res))
+  return res.json()
+}
+
+export async function resumeJob(id: string): Promise<Job> {
+  const res = await fetch(`${BASE}/jobs/${id}/resume`, {
     method: 'POST',
     headers: authHeaders(),
   })

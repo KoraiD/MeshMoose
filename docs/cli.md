@@ -33,6 +33,7 @@ meshmoose jobs create --prompt TEXT --photo PATH --mesh PATH [--mode] [--title] 
 meshmoose jobs wait <id> [--timeout]
 meshmoose jobs cancel <id>
 meshmoose jobs retry <id> [--wait] [--timeout]
+meshmoose jobs resume <id> [--wait] [--timeout]
 meshmoose jobs delete <id>
 meshmoose jobs rename <id> [--title TEXT] [--tag TAG ...]
 meshmoose jobs logs <id> [--lines N]
@@ -54,6 +55,8 @@ Agent `--mode` for `demos run` / `jobs create`: `thoughtful` (default), `fast`, 
 Every subcommand supports `--help` with examples.
 
 `jobs retry` clones a **failed** job’s prompt, title, tags, and input files into a new run (same as `POST /jobs/{id}/retry`).
+
+`jobs resume` continues the **same** failed job from `outputs/main.draft.kcl` when the Agent had checkpointed mid-run (same as `POST /jobs/{id}/resume`). Prefer this after Zoo websocket failures during `agent_running`; use `retry` when no draft exists.
 
 `jobs finish` patches `main.kcl` with a PBR `appearance(...)` preset and re-exports STL / STEP / 3MF (no Agent call).
 
@@ -113,8 +116,11 @@ meshmoose jobs save-kcl "$JOB_ID" --file ./main.kcl --reexport --wait
 meshmoose jobs kcl-versions "$JOB_ID"
 meshmoose jobs kcl-restore "$JOB_ID" "$VERSION_ID" --reexport --wait
 
-# Retry a failed job
+# Retry a failed job (full restart as a new job)
 meshmoose jobs retry "$FAILED_JOB_ID" --wait
+
+# Resume from Agent draft checkpoint (same job)
+meshmoose jobs resume "$FAILED_JOB_ID" --wait
 
 # Refine + download exports
 meshmoose jobs refine "$JOB_ID" --message "Thicken the rim by 0.5 mm" --wait

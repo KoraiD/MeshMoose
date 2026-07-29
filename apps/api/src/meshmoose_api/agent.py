@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from websockets.exceptions import ConnectionClosed
+from websockets.sync.client import connect as ws_connect
 
 from meshmoose_api.logging_util import JobLogger
 from meshmoose_api.photos import mime_for_photo
@@ -20,6 +24,67 @@ Additional photograph(s) and/or mesh may be attached for this refine turn.
 Use them as updated visual/geometric reference while editing the current main.kcl.
 Do not leave the STL as a frozen foreign import — keep the model parametric.
 """.strip()
+
+RESUME_MESSAGE = """
+The previous Agent session was interrupted before completion.
+Continue from the attached current main.kcl and finish a complete, clean parametric
+reconstruction of the part. Prefer sketch + extrude / revolve with clear dimensions.
+Put the full model in main.kcl.
+""".strip()
+
+# conversation_id and/or latest main.kcl text from the live Agent stream.
+CheckpointFn = Callable[..., None]
+
+# Zoo Agent turns can stall for minutes while modeling; the default websockets
+# ping_timeout (20s) then closes with 1011 keepalive ping timeout. Keep sending
+# pings (proxy keepalive) but do not treat a slow pong as a hard failure.
+_COPILOT_PING_INTERVAL = 20.0
+_COPILOT_PING_TIMEOUT = None
+_COPILOT_CLOSE_TIMEOUT = 120.0
+
+
+def copilot_ws_factory(uri: str, **kwargs: Any):
+    """KittyCAD ml_copilot_ws factory with Agent-friendly keepalive settings."""
+    kwargs.setdefault("ping_interval", _COPILOT_PING_INTERVAL)
+    kwargs.setdefault("ping_timeout", _COPILOT_PING_TIMEOUT)
+    kwargs.setdefault("close_timeout", _COPILOT_CLOSE_TIMEOUT)
+    kwargs.setdefault("max_size", None)
+    return ws_connect(uri, **kwargs)
+
+
+def build_resume_message(prompts: list[dict[str, Any]] | None) -> str:
+    """RESUME_MESSAGE plus the latest user refine/initial text when available."""
+    last_user: str | None = None
+    for entry in reversed(prompts or []):
+        role = entry.get("role")
+        if role == "resume":
+            continue
+        if role not in {"refine", "initial"}:
+            continue
+        text = (entry.get("text") or "").strip()
+        if text:
+            last_user = text
+            break
+    if not last_user:
+        return RESUME_MESSAGE
+    return (
+        f"{RESUME_MESSAGE}\n\n"
+        "The user's latest instruction before the interruption was:\n"
+        f"{last_user}"
+    )
+
+
+def _note_ws_closed(
+    log: JobLogger,
+    errors: list[str],
+    exc: BaseException,
+    *,
+    has_main_kcl: bool,
+) -> None:
+    msg = str(exc).strip() or "Agent websocket closed"
+    errors.append(msg)
+    log.emit(msg, level="warn" if has_main_kcl else "error", kind="agent")
+
 
 
 def mime_for_path(path: Path) -> str:
@@ -132,6 +197,20 @@ def message_kind(raw: dict[str, Any]) -> str:
     return "unknown"
 
 
+def emit_checkpoint(
+    on_checkpoint: CheckpointFn | None,
+    *,
+    conversation_id: str | None = None,
+    main_kcl: str | None = None,
+) -> None:
+    """Persist Agent progress mid-stream (conversation id and/or draft KCL)."""
+    if on_checkpoint is None:
+        return
+    if conversation_id is None and not (main_kcl and main_kcl.strip()):
+        return
+    on_checkpoint(conversation_id=conversation_id, main_kcl=main_kcl)
+
+
 def run_copilot_reconstruct(
     *,
     token: str,
@@ -144,6 +223,7 @@ def run_copilot_reconstruct(
     project_name: str,
     current_files: dict[str, bytes] | None = None,
     recv_timeout: float = 600.0,
+    on_checkpoint: CheckpointFn | None = None,
 ) -> dict[str, Any]:
     """Call Zoo ML Copilot with JSON uint8 attachments (BSON breaks attachments)."""
     from kittycad import KittyCAD
@@ -181,12 +261,21 @@ def run_copilot_reconstruct(
         kind="agent",
     )
 
-    with client.ml.ml_copilot_ws() as ws:
+    with client.ml.ml_copilot_ws(ws_factory=copilot_ws_factory) as ws:
         ws.ws.send(json.dumps(payload))
         log.emit("Prompt + attachments sent to Agent", kind="agent")
 
         for i in range(500):
-            message = ws.ws.recv(timeout=ws._recv_timeout)
+            try:
+                message = ws.ws.recv(timeout=ws._recv_timeout)
+            except ConnectionClosed as exc:
+                _note_ws_closed(
+                    log,
+                    errors,
+                    exc,
+                    has_main_kcl=bool(file_outputs.get("main.kcl")),
+                )
+                break
             if isinstance(message, bytes):
                 try:
                     raw = json.loads(message.decode("utf-8"))
@@ -205,6 +294,7 @@ def run_copilot_reconstruct(
                     else str(body)
                 )
                 log.emit(f"conversation_id={conversation_id}", kind="agent")
+                emit_checkpoint(on_checkpoint, conversation_id=conversation_id)
             elif kind == "delta":
                 body = raw["delta"]
                 text = body.get("delta", "") if isinstance(body, dict) else str(body)
@@ -221,10 +311,23 @@ def run_copilot_reconstruct(
                 main = find_main_kcl(result)
                 if main:
                     file_outputs["main.kcl"] = main
+                    emit_checkpoint(
+                        on_checkpoint,
+                        conversation_id=conversation_id,
+                        main_kcl=main,
+                    )
                 t = result.get("type") if isinstance(result, dict) else "?"
                 log.emit(f"tool_output type={t}", kind="agent")
             elif kind == "project_updated":
                 collect_outputs(raw.get("project_updated"), file_outputs)
+                main = find_main_kcl(raw.get("project_updated"))
+                if main:
+                    file_outputs["main.kcl"] = main
+                    emit_checkpoint(
+                        on_checkpoint,
+                        conversation_id=conversation_id,
+                        main_kcl=main,
+                    )
                 log.emit("project_updated", kind="agent")
             elif kind == "files":
                 body = raw["files"]
@@ -238,8 +341,15 @@ def run_copilot_reconstruct(
                     data = bytes_from_wire(f.get("data"))
                     mime = f.get("mimetype") or ""
                     if name.endswith(".kcl") or mime.startswith("text/"):
-                        file_outputs[name] = data.decode("utf-8", errors="replace")
+                        text = data.decode("utf-8", errors="replace")
+                        file_outputs[name] = text
                         log.emit(f"Received file {name} ({len(data)} B)", kind="agent")
+                        if name.endswith("main.kcl") or name == "main.kcl":
+                            emit_checkpoint(
+                                on_checkpoint,
+                                conversation_id=conversation_id,
+                                main_kcl=text,
+                            )
                     else:
                         rel = f"outputs/agent_{name}"
                         dest = outputs_dir / f"agent_{name}"
@@ -285,8 +395,11 @@ def run_copilot_reconstruct(
             else:
                 transcript.append({"kind": kind, "keys": list(raw.keys())})
         else:
-            errors.append("Timed out waiting for end_of_stream")
-            log.emit(errors[-1], level="error", kind="agent")
+            msg = "Timed out waiting for end_of_stream"
+            errors.append(msg)
+            # Draft KCL may already be on the wire — continue when present.
+            level = "warn" if file_outputs.get("main.kcl") else "error"
+            log.emit(msg, level=level, kind="agent")
 
     assistant = "".join(deltas)
     main_kcl = file_outputs.get("main.kcl")
@@ -318,6 +431,7 @@ def run_copilot_refine(
     photo_paths: list[Path] | None = None,
     stl_path: Path | None = None,
     recv_timeout: float = 600.0,
+    on_checkpoint: CheckpointFn | None = None,
 ) -> dict[str, Any]:
     """Refine with current KCL; optionally re-attach photos and/or an STL mesh."""
     from kittycad import KittyCAD
@@ -352,10 +466,22 @@ def run_copilot_refine(
         f"{', conversation=' + conversation_id if conversation_id else ', new conversation'})",
         kind="agent",
     )
-    with client.ml.ml_copilot_ws(conversation_id=conversation_id) as ws:
+    with client.ml.ml_copilot_ws(
+        conversation_id=conversation_id,
+        ws_factory=copilot_ws_factory,
+    ) as ws:
         ws.ws.send(json.dumps(payload))
         for i in range(500):
-            message_raw = ws.ws.recv(timeout=ws._recv_timeout)
+            try:
+                message_raw = ws.ws.recv(timeout=ws._recv_timeout)
+            except ConnectionClosed as exc:
+                _note_ws_closed(
+                    log,
+                    errors,
+                    exc,
+                    has_main_kcl=bool(file_outputs.get("main.kcl")),
+                )
+                break
             raw = (
                 json.loads(message_raw.decode("utf-8"))
                 if isinstance(message_raw, bytes)
@@ -370,6 +496,7 @@ def run_copilot_refine(
                     else str(body)
                 )
                 log.emit(f"conversation_id={new_conversation_id}", kind="agent")
+                emit_checkpoint(on_checkpoint, conversation_id=new_conversation_id)
             elif kind == "delta":
                 body = raw["delta"]
                 text = body.get("delta", "") if isinstance(body, dict) else str(body)
@@ -388,12 +515,25 @@ def run_copilot_refine(
                 main = find_main_kcl(result)
                 if main:
                     file_outputs["main.kcl"] = main
+                    emit_checkpoint(
+                        on_checkpoint,
+                        conversation_id=new_conversation_id,
+                        main_kcl=main,
+                    )
                 log.emit(
                     f"tool_output type={result.get('type') if isinstance(result, dict) else '?'}",
                     kind="agent",
                 )
             elif kind == "project_updated":
                 collect_outputs(raw.get("project_updated"), file_outputs)
+                main = find_main_kcl(raw.get("project_updated"))
+                if main:
+                    file_outputs["main.kcl"] = main
+                    emit_checkpoint(
+                        on_checkpoint,
+                        conversation_id=new_conversation_id,
+                        main_kcl=main,
+                    )
                 log.emit("project_updated", kind="agent")
             elif kind == "request_attachments":
                 body = raw.get("request_attachments") or {}
@@ -442,7 +582,14 @@ def run_copilot_refine(
                         name = (f.get("name") or "file").replace("/", "_").replace(" ", "_")
                         data = bytes_from_wire(f.get("data"))
                         if name.endswith(".kcl"):
-                            file_outputs[name] = data.decode("utf-8", errors="replace")
+                            text = data.decode("utf-8", errors="replace")
+                            file_outputs[name] = text
+                            if name.endswith("main.kcl") or name == "main.kcl":
+                                emit_checkpoint(
+                                    on_checkpoint,
+                                    conversation_id=new_conversation_id,
+                                    main_kcl=text,
+                                )
                         else:
                             rel = f"outputs/agent_{name}"
                             (outputs_dir / f"agent_{name}").write_bytes(data)
@@ -458,8 +605,10 @@ def run_copilot_refine(
             elif kind in {"session_data", "attachments_loaded", "pong", "replay"}:
                 log.emit(kind, kind="agent", level="debug")
         else:
-            errors.append("Timed out waiting for end_of_stream")
-            log.emit(errors[-1], level="error", kind="agent")
+            msg = "Timed out waiting for end_of_stream"
+            errors.append(msg)
+            level = "warn" if file_outputs.get("main.kcl") else "error"
+            log.emit(msg, level=level, kind="agent")
 
     main = file_outputs.get("main.kcl")
     if not main:

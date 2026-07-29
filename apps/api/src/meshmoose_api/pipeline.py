@@ -3,13 +3,44 @@ from __future__ import annotations
 import traceback
 from pathlib import Path
 
-from meshmoose_api.agent import run_copilot_reconstruct, run_copilot_refine
+from meshmoose_api.agent import (
+    build_resume_message,
+    run_copilot_reconstruct,
+    run_copilot_refine,
+)
 from meshmoose_api.errors import format_job_error
 from meshmoose_api.export_kcl import export_kcl
 from meshmoose_api.finishes import apply_finish_to_kcl, get_finish_preset
 from meshmoose_api.jobs import JobStatus, JobStore
 from meshmoose_api.metrics import compare_meshes
 from meshmoose_api.preprocess import ensure_stl_for_agent
+
+
+def _checkpoint_callback(store: JobStore, job_id: str):
+    def on_checkpoint(
+        *,
+        conversation_id: str | None = None,
+        main_kcl: str | None = None,
+    ) -> None:
+        store.save_agent_checkpoint(
+            job_id,
+            conversation_id=conversation_id,
+            main_kcl=main_kcl,
+        )
+
+    return on_checkpoint
+
+
+def _note_agent_soft_errors(log, result: dict) -> None:
+    """When Agent returned KCL despite stream issues, keep going but surface a warn."""
+    errors = result.get("errors") or []
+    if errors and result.get("main_kcl"):
+        log.emit(
+            "Agent reported issues but returned main.kcl — continuing: "
+            + "; ".join(errors),
+            level="warn",
+            kind="agent",
+        )
 
 
 def run_job(store: JobStore, job_id: str, token: str) -> None:
@@ -62,6 +93,7 @@ def run_job(store: JobStore, job_id: str, token: str) -> None:
             outputs_dir=paths.outputs,
             log=log,
             project_name=f"meshmoose-{job_id}",
+            on_checkpoint=_checkpoint_callback(store, job_id),
         )
         if result["errors"] and not result.get("main_kcl"):
             raise RuntimeError("; ".join(result["errors"]))
@@ -69,8 +101,14 @@ def run_job(store: JobStore, job_id: str, token: str) -> None:
         main_kcl = result.get("main_kcl")
         if not main_kcl:
             raise RuntimeError("Agent did not return main.kcl")
+        _note_agent_soft_errors(log, result)
 
         (paths.outputs / "main.kcl").write_text(main_kcl, encoding="utf-8")
+        store.save_agent_checkpoint(
+            job_id,
+            conversation_id=result.get("conversation_id"),
+            main_kcl=main_kcl,
+        )
         # Snapshot the first reconstruction so the UI can diff initial vs current.
         initial_kcl = paths.outputs / "main.initial.kcl"
         if not initial_kcl.is_file():
@@ -115,6 +153,12 @@ def run_job(store: JobStore, job_id: str, token: str) -> None:
         nice = format_job_error(exc)
         log.emit(nice, level="error", kind="error")
         log.emit(tb, level="error", kind="error", level_detail="traceback")
+        if store.has_agent_checkpoint(job_id):
+            log.emit(
+                "Agent checkpoint saved — use Resume to continue from draft KCL",
+                level="warn",
+                kind="agent",
+            )
         store.set_status(job_id, JobStatus.FAILED, error=nice)
 
 
@@ -261,15 +305,22 @@ def refine_job(
             conversation_id=meta.get("conversation_id"),
             photo_paths=photo_paths or None,
             stl_path=agent_stl,
+            on_checkpoint=_checkpoint_callback(store, job_id),
         )
         if store.is_cancelled(job_id):
             log.emit("Refine aborted after agent (cancelled)", level="warn", kind="status")
             return
         if result["errors"] and not result.get("main_kcl"):
             raise RuntimeError("; ".join(result["errors"]))
+        _note_agent_soft_errors(log, result)
 
         new_kcl = result.get("main_kcl") or main_kcl
         kcl_path.write_text(new_kcl, encoding="utf-8")
+        store.save_agent_checkpoint(
+            job_id,
+            conversation_id=result.get("conversation_id"),
+            main_kcl=new_kcl,
+        )
         assist = paths.outputs / "assistant.md"
         prev = assist.read_text(encoding="utf-8") if assist.is_file() else ""
         assist.write_text(
@@ -316,4 +367,123 @@ def refine_job(
             return
         nice = format_job_error(exc)
         log.emit(nice, level="error", kind="error")
+        if store.has_agent_checkpoint(job_id):
+            log.emit(
+                "Agent checkpoint saved — use Resume to continue from draft KCL",
+                level="warn",
+                kind="agent",
+            )
+        store.set_status(job_id, JobStatus.FAILED, error=nice)
+
+
+def resume_job(store: JobStore, job_id: str, token: str) -> None:
+    """Continue a failed Agent run from the last draft KCL checkpoint."""
+    log = store.logger(job_id)
+    paths = store.paths(job_id)
+    try:
+        store.clear_cancel(job_id)
+        meta = store.get(job_id)
+        draft = store.read_agent_draft_kcl(job_id)
+        if not draft:
+            raise RuntimeError("No Agent checkpoint (main.draft.kcl) to resume from")
+
+        # Promote draft so Workbench / refine helpers see current KCL.
+        (paths.outputs / "main.kcl").write_text(draft, encoding="utf-8")
+        initial_kcl = paths.outputs / "main.initial.kcl"
+        if not initial_kcl.is_file():
+            initial_kcl.write_text(draft, encoding="utf-8")
+
+        photo_names = meta.get("input_photos") or []
+        photo_paths = [paths.inputs / n for n in photo_names if (paths.inputs / n).is_file()]
+        agent_stl = paths.inputs / "mesh_for_agent.stl"
+        stl_path = agent_stl if agent_stl.is_file() else None
+
+        log.emit(
+            "Resuming Agent from checkpoint "
+            f"({len(draft)} chars"
+            f"{', conversation=' + meta['conversation_id'] if meta.get('conversation_id') else ''})",
+            kind="agent",
+        )
+        store.update_meta(job_id, error=None)
+        store.set_status(job_id, JobStatus.AGENT_RUNNING)
+        result = run_copilot_refine(
+            token=token,
+            message=build_resume_message(meta.get("prompts")),
+            main_kcl=draft,
+            mode=meta.get("mode") or "thoughtful",
+            outputs_dir=paths.outputs,
+            log=log,
+            project_name=f"meshmoose-{job_id}",
+            conversation_id=meta.get("conversation_id"),
+            photo_paths=photo_paths or None,
+            stl_path=stl_path,
+            on_checkpoint=_checkpoint_callback(store, job_id),
+        )
+        if store.is_cancelled(job_id):
+            log.emit("Resume aborted after agent (cancelled)", level="warn", kind="status")
+            return
+        if result["errors"] and not result.get("main_kcl"):
+            raise RuntimeError("; ".join(result["errors"]))
+        _note_agent_soft_errors(log, result)
+
+        new_kcl = result.get("main_kcl") or draft
+        (paths.outputs / "main.kcl").write_text(new_kcl, encoding="utf-8")
+        store.save_agent_checkpoint(
+            job_id,
+            conversation_id=result.get("conversation_id"),
+            main_kcl=new_kcl,
+        )
+        assist = paths.outputs / "assistant.md"
+        prev = assist.read_text(encoding="utf-8") if assist.is_file() else ""
+        assist.write_text(
+            prev + "\n\n---\n\n## Resume\n\n" + (result.get("assistant_text") or ""),
+            encoding="utf-8",
+        )
+        store.update_meta(job_id, conversation_id=result.get("conversation_id"))
+
+        store.set_status(job_id, JobStatus.EXPORTING)
+        export_kcl(
+            token=token,
+            main_kcl=new_kcl,
+            out_stl=paths.outputs / "generated.stl",
+            out_step=paths.outputs / "generated.step",
+            out_3mf=paths.outputs / "generated.3mf",
+            log=log,
+        )
+        if store.is_cancelled(job_id):
+            log.emit("Resume aborted after export (cancelled)", level="warn", kind="status")
+            return
+
+        ref = store.reference_path(job_id)
+        if ref.is_file():
+            store.set_status(job_id, JobStatus.MEASURING)
+            try:
+                compare_meshes(
+                    token=token,
+                    reference_stl=ref,
+                    generated_stl=paths.outputs / "generated.stl",
+                    out_json=paths.outputs / "metrics.json",
+                    log=log,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.emit(f"Measure step failed (non-fatal): {exc}", level="warn")
+
+        if store.is_cancelled(job_id):
+            log.emit("Resume aborted before success (cancelled)", level="warn", kind="status")
+            return
+        store.set_status(job_id, JobStatus.SUCCEEDED)
+        log.emit("Resume succeeded", kind="status", status="succeeded")
+    except Exception as exc:  # noqa: BLE001
+        if store.is_cancelled(job_id):
+            log.emit(f"Resume stopped after cancel: {exc}", level="warn", kind="error")
+            return
+        nice = format_job_error(exc)
+        log.emit(nice, level="error", kind="error")
+        log.emit(traceback.format_exc(), level="error", kind="error", level_detail="traceback")
+        if store.has_agent_checkpoint(job_id):
+            log.emit(
+                "Agent checkpoint saved — use Resume to continue from draft KCL",
+                level="warn",
+                kind="agent",
+            )
         store.set_status(job_id, JobStatus.FAILED, error=nice)

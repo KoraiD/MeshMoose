@@ -243,6 +243,41 @@ def test_client_patch_and_retry(client: MeshMooseClient, tmp_path: Path):
     client.delete_job(job["id"])
 
 
+def test_client_resume_job(
+    client: MeshMooseClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    import meshmoose_api.main as main_mod
+
+    photo = tmp_path / "a.jpg"
+    mesh = tmp_path / "a.stl"
+    photo.write_bytes(b"\xff\xd8\xff\xd9")
+    mesh.write_bytes(b"solid x\nendsolid x\n")
+    job = client.create_job(
+        prompt="Make a hoop",
+        photos=[photo],
+        meshes=[mesh],
+        mode="fast",
+        title="Hoop",
+    )
+    main_mod.store.update_meta(job["id"], status="failed", error="ws closed")
+    main_mod.store.save_agent_checkpoint(
+        job["id"],
+        conversation_id="conv-1",
+        main_kcl="// draft hoop\n",
+    )
+    started: list[str] = []
+
+    def fake_start(jid: str, _token: str) -> None:
+        started.append(jid)
+
+    monkeypatch.setattr(main_mod, "_start_resume_thread", fake_start)
+    resumed = client.resume_job(job["id"])
+    assert resumed["id"] == job["id"]
+    assert resumed["has_agent_checkpoint"] is True
+    assert started == [job["id"]]
+    client.delete_job(job["id"])
+
+
 def test_cli_jobs_retry(api_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
     transport = _TestTransport(api_app)
     real = MeshMooseClient(base_url="http://test", token="t", transport=transport)  # type: ignore[arg-type]
@@ -267,6 +302,43 @@ def test_cli_jobs_retry(api_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     assert code == 0
     out = capsys.readouterr().out
     assert "job_id:" in out
+    real.delete_job(job["id"])
+    try:
+        real.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def test_cli_jobs_resume(api_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
+    transport = _TestTransport(api_app)
+    real = MeshMooseClient(base_url="http://test", token="t", transport=transport)  # type: ignore[arg-type]
+    import meshmoose_api.main as main_mod
+
+    photo = tmp_path / "p.jpg"
+    mesh = tmp_path / "m.stl"
+    photo.write_bytes(b"\xff\xd8\xff\xd9")
+    mesh.write_bytes(b"solid x\nendsolid x\n")
+    job = real.create_job(prompt="x", photos=[photo], meshes=[mesh], mode="fast")
+    main_mod.store.update_meta(job["id"], status="failed", error="boom")
+    main_mod.store.save_agent_checkpoint(
+        job["id"],
+        conversation_id="c",
+        main_kcl="// draft\n",
+    )
+    monkeypatch.setattr(main_mod, "_start_resume_thread", lambda *_a, **_k: None)
+
+    def fake_client(*_a: Any, **_k: Any) -> MeshMooseClient:
+        return MeshMooseClient(
+            base_url="http://test",
+            token="t",
+            transport=_TestTransport(api_app),  # type: ignore[arg-type]
+        )
+
+    monkeypatch.setattr("meshmoose_api.cli.MeshMooseClient", fake_client)
+    code = cli_main(["jobs", "resume", job["id"]])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "resume" in out.lower()
     real.delete_job(job["id"])
     try:
         real.close()
@@ -384,6 +456,8 @@ def test_openapi_docs_available(api_app):
         assert "/health" in paths
         assert "/finishes" in paths
         assert "/jobs/{job_id}/finish" in paths
+        assert "/jobs/{job_id}/retry" in paths
+        assert "/jobs/{job_id}/resume" in paths
         assert "/jobs/{job_id}/kcl" in paths
         assert "/jobs/{job_id}/kcl/versions" in paths
         assert "/jobs/{job_id}/kcl/restore" in paths

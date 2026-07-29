@@ -75,7 +75,7 @@ _meshmoose() {
     cmds="health usage demos jobs mesh completion"
     case "${COMP_WORDS[1]}" in
         demos) COMPREPLY=( $(compgen -W "list run" -- "$cur") ) ;;
-        jobs)  COMPREPLY=( $(compgen -W "list get create wait cancel retry delete rename logs refine finish save-kcl kcl-versions kcl-restore artifacts download" -- "$cur") ) ;;
+        jobs)  COMPREPLY=( $(compgen -W "list get create wait cancel retry resume delete rename logs refine finish save-kcl kcl-versions kcl-restore artifacts download" -- "$cur") ) ;;
         mesh)  COMPREPLY=( $(compgen -W "corrupt" -- "$cur") ) ;;
         completion) COMPREPLY=( $(compgen -W "bash zsh" -- "$cur") ) ;;
         *)     COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
@@ -96,7 +96,7 @@ _meshmoose() {
     fi
     case "${words[2]}" in
         demos) compadd list run ;;
-        jobs)  compadd list get create wait cancel retry delete rename logs refine finish save-kcl kcl-versions kcl-restore artifacts download ;;
+        jobs)  compadd list get create wait cancel retry resume delete rename logs refine finish save-kcl kcl-versions kcl-restore artifacts download ;;
         mesh)  compadd corrupt ;;
         completion) compadd bash zsh ;;
     esac
@@ -251,6 +251,20 @@ def cmd_jobs_retry(args: argparse.Namespace) -> int:
     with _client_from_args(args) as client:
         job = client.retry_job(args.job_id)
         print(f"job_id: {job['id']}", flush=True)
+        if args.wait:
+            job = client.wait_job(
+                job["id"],
+                timeout=args.timeout,
+                on_status=lambda status, _meta: print(f"status: {status}", flush=True),
+            )
+        _print(job, as_json=True)
+        return 0 if job.get("status") != "failed" else 1
+
+
+def cmd_jobs_resume(args: argparse.Namespace) -> int:
+    with _client_from_args(args) as client:
+        job = client.resume_job(args.job_id)
+        print(f"job_id: {job['id']} (resume)", flush=True)
         if args.wait:
             job = client.wait_job(
                 job["id"],
@@ -653,6 +667,18 @@ def build_parser() -> argparse.ArgumentParser:
     j_retry.add_argument("--wait", action="store_true")
     j_retry.add_argument("--timeout", type=float, default=900.0)
     j_retry.set_defaults(func=cmd_jobs_retry)
+
+    j_resume = jobs_sub.add_parser(
+        "resume",
+        parents=[shared],
+        help="Resume a failed job from its Agent KCL checkpoint",
+        epilog="Example: meshmoose jobs resume JOB_ID --wait",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    j_resume.add_argument("job_id")
+    j_resume.add_argument("--wait", action="store_true")
+    j_resume.add_argument("--timeout", type=float, default=900.0)
+    j_resume.set_defaults(func=cmd_jobs_resume)
 
     j_delete = jobs_sub.add_parser(
         "delete",

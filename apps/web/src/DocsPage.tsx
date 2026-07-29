@@ -64,10 +64,12 @@ export function DocsPage({ onBack, embedded = false }: Props) {
             or 3MF from Compare.
           </li>
           <li>
-            Failed jobs can be <strong>Retry</strong>’d from the UI or{' '}
-            <code>meshmoose jobs retry</code>. Transient Engine hangups during export are
-            retried automatically. Offline, use <code>meshmoose mesh corrupt</code> to
-            simulate incomplete scans for demos.
+            Mid-Agent Zoo disconnects that already wrote a draft <code>main.kcl</code> can
+            be <strong>Resume</strong>’d from the same job (UI or{' '}
+            <code>meshmoose jobs resume</code>). Otherwise use <strong>Retry</strong> /{' '}
+            <code>meshmoose jobs retry</code> for a full restart. Transient Engine hangups
+            during export are retried automatically. Offline, use{' '}
+            <code>meshmoose mesh corrupt</code> to simulate incomplete scans for demos.
           </li>
         </ol>
         <p className="muted">
@@ -125,6 +127,11 @@ export function DocsPage({ onBack, embedded = false }: Props) {
               <td>POST</td>
               <td>/jobs/&#123;id&#125;/retry</td>
               <td>Clone a failed job</td>
+            </tr>
+            <tr>
+              <td>POST</td>
+              <td>/jobs/&#123;id&#125;/resume</td>
+              <td>Continue from Agent draft checkpoint</td>
             </tr>
             <tr>
               <td>POST</td>
@@ -206,6 +213,7 @@ meshmoose jobs save-kcl <job_id> --file ./main.kcl --reexport --wait
 meshmoose jobs kcl-versions <job_id>
 meshmoose jobs kcl-restore <job_id> <version_id> --reexport --wait
 meshmoose jobs retry <failed_job_id>
+meshmoose jobs resume <failed_job_id>
 meshmoose jobs download <job_id> --out ./exports
 meshmoose mesh corrupt part.stl -o partial.stl --missing 0.35`}</pre>
         <p className="muted">

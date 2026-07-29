@@ -32,6 +32,7 @@ The API forwards this token to Zoo and **does not** persist it. Public routes: `
 | `DELETE` | `/jobs/{id}` | yes | Delete job + files |
 | `POST` | `/jobs/{id}/cancel` | yes | Request cancel while running |
 | `POST` | `/jobs/{id}/retry` | yes | Clone a **failed** job’s prompt + inputs (+ title/tags) into a new run |
+| `POST` | `/jobs/{id}/resume` | yes | Continue a **failed** job from Agent draft checkpoint (`outputs/main.draft.kcl`) |
 | `POST` | `/jobs/{id}/refine` | yes | Refine (`message`, optional `photos[]` / `meshes[]`) |
 | `GET` | `/finishes` | yes | List PBR Apply-finish presets |
 | `POST` | `/jobs/{id}/finish` | yes | Apply finish preset (`preset` form field) and re-export |
@@ -57,7 +58,7 @@ Agent `mode` on create / from-demo: `thoughtful` (default), `fast`, `auto`, or `
 
 ## Outputs (typical job artifacts)
 
-Under `outputs/`: `main.kcl`, `generated.stl`, `generated.step`, `generated.3mf`, `reference.stl`, `metrics.json`, `job.log`, agent snapshot JPEGs.
+Under `outputs/`: `main.kcl`, `main.draft.kcl` (mid-Agent checkpoint for Resume), `generated.stl`, `generated.step`, `generated.3mf`, `reference.stl`, `metrics.json`, `job.log`, agent snapshot JPEGs. Job metadata may include `has_agent_checkpoint` when hydrated.
 
 ## Create job (curl)
 
